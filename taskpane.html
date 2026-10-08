@@ -25,6 +25,15 @@
     .tabs button.on { background: var(--accent); color: #fff; font-weight: 600; }
     .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
     .row2 > div { min-width: 0; }
+    .combo { position: relative; }
+    .combo input { padding-right: 24px; }
+    .combo::after { content: "▾"; position: absolute; right: 9px; top: 50%; transform: translateY(-50%); color: var(--muted); pointer-events: none; font-size: 12px; }
+    .droplist { position: absolute; left: 0; min-width: 100%; width: max-content; max-width: 260px; top: 100%; z-index: 10; max-height: 240px; overflow-y: auto; background: #fff; border: 1px solid var(--line); border-radius: 0 0 6px 6px; box-shadow: 0 6px 16px rgba(0,0,0,.15); display: none; }
+    #ansprechListe { right: 0; left: auto; }
+    .droplist div { padding: 6px 9px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .droplist div:hover, .droplist div.aktiv { background: var(--soft); }
+    .droplist div.gruppe { font-size: 11px; font-weight: 600; color: var(--muted); cursor: default; background: #fafafa; padding: 4px 9px; }
+    .droplist small { color: var(--muted); margin-left: 6px; font-size: 11px; }
     .quick { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
     .quick button { padding: 3px 8px; border: 1px solid var(--line); border-radius: 12px; background: #fff; font: inherit; font-size: 12px; cursor: pointer; }
     .quick button:hover { background: var(--soft); }
@@ -71,12 +80,11 @@
     <div class="row2">
       <div>
         <label for="firma">Firma</label>
-        <input type="text" id="firma" list="firmen" autocomplete="off" />
-        <datalist id="firmen"></datalist>
+        <div class="combo"><input type="text" id="firma" autocomplete="off" placeholder="wählen oder tippen" /><div id="firmaListe" class="droplist"></div></div>
       </div>
       <div>
         <label for="ansprech">Ansprechperson</label>
-        <input type="text" id="ansprech" autocomplete="off" maxlength="255" />
+        <div class="combo"><input type="text" id="ansprech" autocomplete="off" maxlength="255" placeholder="wählen oder tippen" /><div id="ansprechListe" class="droplist"></div></div>
       </div>
     </div>
 
@@ -113,7 +121,7 @@
   <div id="status"></div>
   <div id="version" class="hint" style="margin-top: 18px; text-align: right;"></div>
 
-  <script src="einstellungen.js?v=1"></script>
-  <script src="taskpane.js?v=1"></script>
+  <script src="einstellungen.js?v=2"></script>
+  <script src="taskpane.js?v=2"></script>
 </body>
 </html>

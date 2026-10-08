@@ -8,7 +8,7 @@
 
 const E = window.FP_EINSTELLUNGEN || {};
 const CONFIG = {
-  version: "0.1",
+  version: "0.2",
   clientId: E.clientId,                             // App-Registrierung „FP-Knopf“ (einstellungen.js)
   tenantId: "1571141a-75a9-43a3-ad47-8d613cfbb3e6",
   spHost: "https://ingburghausengmbh.sharepoint.com",
@@ -23,7 +23,9 @@ CONFIG.scopes = [CONFIG.spHost + "/AllSites.Write"];
 
 let pca = null;
 let standalone = false;
-let firmen = [];
+let firmen = [];          // [{name, n}] nach Häufigkeit
+let personen = {};        // Firma (klein) -> {Person: Anzahl}
+let personenAlle = {};    // Person -> Anzahl
 let mappen = [];          // offene Mappen [{id, name, rel, firma, faellig}]
 let gewaehlt = null;      // gewählte Mappe im Modus „Zu bestehender“
 let modus = "neu";
@@ -126,7 +128,7 @@ async function nachAnmeldung() {
   const sel = el("bearbeiter");
   if (CONFIG.bearbeiter.some((b) => b.mail === mein.mail)) sel.value = mein.mail;
   try {
-    await Promise.all([ladeFirmen(), ladeMappen()]);
+    await Promise.all([ladeStammdaten(), ladeMappen()]);
   } catch (e) {
     status("Laden fehlgeschlagen: " + msg(e), "err");
   }
@@ -162,11 +164,47 @@ async function sp(path, opts = {}) {
 
 const liste = () => `${CONFIG.web}/_api/web/lists(guid'${CONFIG.listId}')`;
 
-async function ladeFirmen() {
-  const f = await sp(liste() + "/fields/getbyinternalnameortitle('FPFirma')?$select=Choices");
-  firmen = (f && f.Choices) || [];
-  el("firmen").innerHTML = firmen.map((x) => `<option value="${html(x)}"></option>`).join("");
+/* Firmen und Ansprechpersonen aus allen Mappen: was oft vorkommt, steht oben */
+async function ladeStammdaten() {
+  const [f, r] = await Promise.all([
+    sp(liste() + "/fields/getbyinternalnameortitle('FPFirma')?$select=Choices"),
+    sp(liste() + "/items?$select=FPFirma,FPAnsprechperson&$filter=FSObjType eq 1&$top=5000"),
+  ]);
+  const zahl = {}, schreib = {};   // klein -> Anzahl, klein -> {Schreibweise: Anzahl}
+  const merke = (name, n) => {
+    const k = name.toLowerCase();
+    zahl[k] = (zahl[k] || 0) + n;
+    schreib[k] = schreib[k] || {};
+    schreib[k][name] = (schreib[k][name] || 0) + n;
+  };
+  ((f && f.Choices) || []).forEach((c) => merke(c, 0));
+  personen = {}; personenAlle = {};
+  for (const x of (r && r.value) || []) {
+    const fi = (x.FPFirma || "").trim();
+    if (fi) merke(fi, 1);
+    for (const p of (x.FPAnsprechperson || "").split(/[\/_;]+/).map((s) => s.trim()).filter(Boolean)) {
+      const k = fi.toLowerCase();
+      personen[k] = personen[k] || {};
+      personen[k][p] = (personen[k][p] || 0) + 1;
+      personenAlle[p] = (personenAlle[p] || 0) + 1;
+    }
+  }
+  // je Firma die häufigste Schreibweise („Eretec“ statt „eretec“)
+  firmen = Object.keys(zahl).map((k) => ({ name: Object.entries(schreib[k]).sort((a, b) => b[1] - a[1])[0][0], n: zahl[k] }))
+    .sort((a, b) => b.n - a.n || a.name.localeCompare(b.name, "de"));
   if (!el("firma").value) el("firma").value = firmaRaten();
+}
+
+function nachname(anzeige) { // „Giepen, Max“ → „Giepen“, „Max Giepen“ → „Giepen“
+  const s = (anzeige || "").replace(/\(.*?\)|<.*?>|".*?"/g, "").trim();
+  if (s.includes(",")) return s.split(",")[0].trim();
+  const t = s.split(/\s+/).filter(Boolean);
+  return t.length ? t[t.length - 1] : "";
+}
+
+function absenderName() {
+  const it = mailItem();
+  return it && it.from ? nachname(it.from.displayName || "") : "";
 }
 
 async function ladeMappen() {
@@ -200,7 +238,7 @@ function ausMail() {
   el("mail").textContent = (it.subject || "(ohne Betreff)") + (von ? " · " + von : "");
   el("mail").title = el("mail").textContent;
   el("name").value = mappenName(it.subject || "");
-  el("ansprech").value = (it.from && it.from.displayName) || "";
+  el("ansprech").value = absenderName();
   el("firma").value = firmaRaten();
   el("notiz").value = "";
   el("suche").value = "";
@@ -226,16 +264,83 @@ function kuerzen(s, max) {
   return (i > max * 0.6 ? t.slice(0, i) : t).replace(/[\s.]+$/, "");
 }
 
+/* 1. Absender ist als Ansprechperson genau einer Firma bekannt → diese Firma
+   2. sonst: Firmenname kommt eindeutig im Betreff oder in der Mail-Domain vor */
 function firmaRaten() {
   const it = mailItem();
   if (!it || !firmen.length) return "";
+  const eigene = (f) => CONFIG.ohneFirma.includes(f.toLowerCase());
+  const person = absenderName();
+  if (person) {
+    const bei = firmen.filter((f) => !eigene(f.name) && personen[f.name.toLowerCase()] && personen[f.name.toLowerCase()][person]);
+    if (bei.length === 1) return bei[0].name;
+  }
   const mail = (it.from && it.from.emailAddress) || "";
   const domain = mail.split("@")[1] || "";
   const text = " " + [(it.subject || ""), domain.replace(/\.[a-z]+$/i, "")].join(" ").toLowerCase().replace(/[^a-z0-9äöüß]+/g, " ") + " ";
-  const treffer = firmen.filter((f) => !CONFIG.ohneFirma.includes(f.toLowerCase()) &&
-    text.includes(" " + f.toLowerCase().replace(/[^a-z0-9äöüß]+/g, " ").trim() + " "));
-  const eindeutig = [...new Set(treffer.map((f) => f.toLowerCase()))];
-  return eindeutig.length === 1 ? treffer[0] : "";
+  const treffer = firmen.filter((f) => !eigene(f.name) &&
+    text.includes(" " + f.name.toLowerCase().replace(/[^a-z0-9äöüß]+/g, " ").trim() + " "));
+  return treffer.length === 1 ? treffer[0].name : "";
+}
+
+/* Auswahlliste unter einem Eingabefeld: zeigt beim Anklicken alles, beim Tippen die Treffer */
+function auswahl(feldId, listeId, quelle) {
+  const feld = el(feldId), box = el(listeId);
+  let aktiv = -1;
+  const zeige = () => {
+    const q = feld.value.trim().toLowerCase();
+    const eintraege = quelle(q);
+    aktiv = -1;
+    box.innerHTML = "";
+    for (const e of eintraege) {
+      const d = document.createElement("div");
+      if (e.gruppe) { d.className = "gruppe"; d.textContent = e.gruppe; box.appendChild(d); continue; }
+      d.innerHTML = html(e.text) + (e.info ? `<small>${html(e.info)}</small>` : "");
+      d.dataset.wert = e.text;
+      d.onmousedown = (ev) => { ev.preventDefault(); feld.value = e.text; box.style.display = "none"; feld.dispatchEvent(new Event("change")); };
+      box.appendChild(d);
+    }
+    box.style.display = box.children.length ? "block" : "none";
+  };
+  const waehlbar = () => [...box.querySelectorAll("div[data-wert]")];
+  feld.addEventListener("focus", () => { feld.select(); zeige(); });
+  feld.addEventListener("input", zeige);
+  feld.addEventListener("blur", () => setTimeout(() => { box.style.display = "none"; }, 120));
+  feld.addEventListener("keydown", (ev) => {
+    const w = waehlbar();
+    if (!w.length || box.style.display === "none") return;
+    if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
+      ev.preventDefault();
+      aktiv = (aktiv + (ev.key === "ArrowDown" ? 1 : -1) + w.length) % w.length;
+      w.forEach((d, i) => d.classList.toggle("aktiv", i === aktiv));
+      w[aktiv].scrollIntoView({ block: "nearest" });
+    } else if (ev.key === "Enter" && aktiv >= 0) {
+      ev.preventDefault();
+      feld.value = w[aktiv].dataset.wert; box.style.display = "none"; feld.dispatchEvent(new Event("change"));
+    } else if (ev.key === "Escape") {
+      box.style.display = "none";
+    }
+  });
+}
+
+function firmenQuelle(q) {
+  return firmen.filter((f) => !q || f.name.toLowerCase().includes(q))
+    .map((f) => ({ text: f.name, info: f.n ? f.n + " Aufg." : "" }));
+}
+
+function personenQuelle(q) {
+  const passt = (p) => !q || p.toLowerCase().includes(q);
+  const firma = el("firma").value.trim().toLowerCase();
+  const eigene = Object.entries(personen[firma] || {}).sort((a, b) => b[1] - a[1]).map((x) => x[0]);
+  const aus = [];
+  const abs = absenderName();
+  if (abs && passt(abs) && !eigene.includes(abs)) aus.push({ text: abs, info: "Absender" });
+  const e1 = eigene.filter(passt).map((p) => ({ text: p, info: (abs === p ? "Absender · " : "") + personen[firma][p] + "×" }));
+  if (e1.length) aus.push({ gruppe: el("firma").value.trim() || "Firma" }, ...e1);
+  const rest = Object.entries(personenAlle).filter(([p]) => !eigene.includes(p) && p !== abs && passt(p))
+    .sort((a, b) => b[1] - a[1]).slice(0, q ? 40 : 25).map(([p, n]) => ({ text: p, info: n + "×" }));
+  if (rest.length) aus.push({ gruppe: "Weitere" }, ...rest);
+  return aus;
 }
 
 function mailAlsDatei() {
@@ -366,6 +471,8 @@ function oberflaeche() {
   };
   el("los").onclick = los;
   el("name").oninput = pruefeKnopf;
+  auswahl("firma", "firmaListe", firmenQuelle);
+  auswahl("ansprech", "ansprechListe", personenQuelle);
   el("suche").oninput = zeigeMappen;
   document.querySelectorAll(".quick button").forEach((b) => {
     b.onclick = () => {

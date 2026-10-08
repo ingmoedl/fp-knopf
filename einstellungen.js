@@ -5,11 +5,10 @@ window.FP_EINSTELLUNGEN = {
   // Anwendungs-ID (Client) der App-Registrierung „FP-Knopf“ in Entra
   clientId: "ffce7fb6-79a5-4127-a921-1a8fe45390da",
 
-  // Wer als Bearbeiter wählbar ist. Testphase: nur SMO.
-  // Nach dem Test ergänzen:
-  //   { kuerzel: "HWE", name: "Weidacher, Helmut", mail: "weidacher@ing-burghausen.de" },
-  //   { kuerzel: "LSC", name: "Schweiger, Lena", mail: "schweiger@ing-burghausen.de" },
+  // Wer als Bearbeiter wählbar ist
   bearbeiter: [
     { kuerzel: "SMO", name: "Mödl, Samuel", mail: "moedl@ing-burghausen.de" },
+    { kuerzel: "HWE", name: "Weidacher, Helmut", mail: "weidacher@ing-burghausen.de" },
+    { kuerzel: "LSC", name: "Schweiger, Lena", mail: "schweiger@ing-burghausen.de" },
   ],
 };
