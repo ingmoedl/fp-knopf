@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FP-Aufgabe</title>
+  <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+  <script src="msal-browser.min.js?v=1"></script>
+  <style>
+    :root {
+      --ink: #242424; --muted: #616161; --line: #d1d1d1;
+      --accent: #0b5394; --accent-hov: #073a69;
+      --bg: #ffffff; --soft: #f3f6fa;
+      --err: #b10e1c; --ok: #107c10;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 14px 16px; font-family: "Segoe UI", system-ui, sans-serif; font-size: 14px; color: var(--ink); background: var(--bg); }
+    h1 { font-size: 15px; margin: 0 0 10px; }
+    label { display: block; font-size: 12px; font-weight: 600; color: var(--muted); margin: 12px 0 4px; }
+    input[type=text], input[type=date], input[type=search], select, textarea { width: 100%; padding: 7px 9px; border: 1px solid var(--line); border-radius: 4px; font: inherit; background: #fff; color: var(--ink); }
+    input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+    textarea { resize: vertical; min-height: 60px; line-height: 1.4; }
+    .tabs { display: flex; gap: 0; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+    .tabs button { flex: 1; padding: 7px 4px; border: none; background: #fff; font: inherit; font-size: 13px; cursor: pointer; color: var(--muted); }
+    .tabs button.on { background: var(--accent); color: #fff; font-weight: 600; }
+    .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .row2 > div { min-width: 0; }
+    .quick { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
+    .quick button { padding: 3px 8px; border: 1px solid var(--line); border-radius: 12px; background: #fff; font: inherit; font-size: 12px; cursor: pointer; }
+    .quick button:hover { background: var(--soft); }
+    #liste { margin-top: 6px; max-height: 220px; overflow-y: auto; border: 1px solid var(--line); border-radius: 4px; }
+    #liste div { padding: 7px 9px; cursor: pointer; border-bottom: 1px solid #eee; }
+    #liste div:last-child { border-bottom: none; }
+    #liste div:hover { background: var(--soft); }
+    #liste div.on { background: var(--accent); color: #fff; }
+    #liste div small { display: block; color: var(--muted); font-size: 11.5px; }
+    #liste div.on small { color: #dfe9f5; }
+    #liste .leer { color: var(--muted); cursor: default; }
+    button.primary { width: 100%; margin-top: 16px; padding: 9px; background: var(--accent); color: #fff; border: none; border-radius: 4px; font: inherit; font-weight: 600; cursor: pointer; }
+    button.primary:hover { background: var(--accent-hov); }
+    button.primary:disabled { background: #9aa9b8; cursor: default; }
+    #status { margin-top: 14px; font-size: 13px; line-height: 1.5; white-space: pre-line; }
+    #status.err { color: var(--err); }
+    #status.ok { color: var(--ok); }
+    #status a { color: var(--accent); font-weight: 600; }
+    .hint { font-size: 11.5px; color: var(--muted); margin-top: 4px; }
+    #login { display: none; margin-bottom: 8px; }
+    #mail { font-size: 12px; color: var(--muted); background: var(--soft); border-radius: 4px; padding: 6px 9px; margin-bottom: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .nur-neu, .nur-alt { display: none; }
+    body.neu .nur-neu, body.alt .nur-alt { display: block; }
+  </style>
+</head>
+<body class="neu">
+  <h1>FP-Aufgabe</h1>
+  <div id="mail">Mail wird gelesen …</div>
+
+  <div id="login">
+    <button id="loginBtn" class="primary">Bei Microsoft anmelden</button>
+    <div class="hint">Nur beim ersten Mal nötig.</div>
+  </div>
+
+  <div class="tabs">
+    <button id="tabNeu" class="on">Neue Aufgabe</button>
+    <button id="tabAlt">Zu bestehender</button>
+  </div>
+
+  <div class="nur-neu">
+    <label for="name">Name der Aufgabe</label>
+    <input type="text" id="name" autocomplete="off" maxlength="100" />
+
+    <div class="row2">
+      <div>
+        <label for="firma">Firma</label>
+        <input type="text" id="firma" list="firmen" autocomplete="off" />
+        <datalist id="firmen"></datalist>
+      </div>
+      <div>
+        <label for="ansprech">Ansprechperson</label>
+        <input type="text" id="ansprech" autocomplete="off" maxlength="255" />
+      </div>
+    </div>
+
+    <div class="row2">
+      <div>
+        <label for="bearbeiter">Bearbeiter</label>
+        <select id="bearbeiter"></select>
+      </div>
+      <div>
+        <label for="faellig">Fälligkeit</label>
+        <input type="date" id="faellig" />
+      </div>
+    </div>
+    <div class="quick">
+      <button data-tage="1">morgen</button>
+      <button data-tage="3">+3 Tage</button>
+      <button data-tage="7">+1 Woche</button>
+      <button data-tage="14">+2 Wochen</button>
+    </div>
+  </div>
+
+  <div class="nur-alt">
+    <label for="suche">Aufgabe suchen</label>
+    <input type="search" id="suche" placeholder="Name oder Firma tippen …" autocomplete="off" />
+    <div id="liste"><div class="leer">Aufgaben werden geladen …</div></div>
+  </div>
+
+  <label for="notiz">Verlauf (optional)</label>
+  <textarea id="notiz" rows="2" placeholder="z. B. Rückruf Herr Aust, Pläne kommen Freitag"></textarea>
+  <div class="hint">Wird mit Datum und Kürzel oben in den Verlauf geschrieben. Die Mail selbst kommt als Datei in die Mappe.</div>
+
+  <button id="los" class="primary" disabled>Aufgabe anlegen</button>
+
+  <div id="status"></div>
+  <div id="version" class="hint" style="margin-top: 18px; text-align: right;"></div>
+
+  <script src="einstellungen.js?v=1"></script>
+  <script src="taskpane.js?v=1"></script>
+</body>
+</html>
