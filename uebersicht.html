@@ -4,6 +4,9 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>FP-Aufgaben</title>
+  <!-- Schutz gegen eingeschleuste Skripte: Code nur aus diesem Repo, Verbindungen nur zu SharePoint und zur
+       Microsoft-Anmeldung. Gilt auch für die Mail-Anzeige (iframe srcdoc erbt sie); https:-Bilder nur dort auf Klick. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data: https:; connect-src https://ingburghausengmbh.sharepoint.com https://login.microsoftonline.com; frame-src 'self' blob: https://login.microsoftonline.com; object-src 'none'; base-uri 'self'; form-action 'none'" />
   <link rel="manifest" href="manifest.webmanifest" />
   <meta name="theme-color" content="#0b5394" />
   <link rel="icon" type="image/png" href="assets/icon-32.png" />
@@ -24,9 +27,9 @@
 </head>
 <body>
   <div id="app"><div class="start"><div class="logo">FP</div><h1>FP-Aufgaben</h1><p>Anmeldung …</p></div></div>
-  <script src="einstellungen.js?v=3"></script>
-  <script src="mail.js?v=1"></script>
-  <script src="uebersicht.js?v=4"></script>
-  <script src="uebersicht-start.js?v=2"></script>
+  <script src="einstellungen.js?v=4"></script>
+  <script src="mail.js?v=2"></script>
+  <script src="uebersicht.js?v=5"></script>
+  <script src="uebersicht-start.js?v=3"></script>
 </body>
 </html>

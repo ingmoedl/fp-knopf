@@ -30,6 +30,11 @@
     }
   }
 
+  // Nicht in fremde Seiten einbetten lassen (sonst könnte eine fremde Seite Klicks unterschieben). Erlaubt bleibt der
+  // gleiche Ursprung: dort lädt MSAL diese Seite für die stille Anmeldung in einen unsichtbaren Rahmen.
+  try { if (window.top !== window.self && window.top.location.origin !== location.origin) throw new Error("fremd"); }
+  catch (e) { app.textContent = "FP-Aufgaben bitte direkt öffnen: " + location.origin + location.pathname; return; }
+
   if (!E.clientId || !window.msal) { hinweis("Einstellungen fehlen (einstellungen.js) oder MSAL wurde nicht geladen."); return; }
 
   let pca;
@@ -80,8 +85,11 @@
 
   try { await token(); } catch (e) { fehler(e); return; }
 
+  // Team (Kürzel, Namen, Mails) aus SharePoint: steht bewusst nicht in der öffentlichen einstellungen.js
+  let team = E.bearbeiter || [];
+  try { team = await window.FPUebersicht.team(sp, S, E.maildomain); } catch (e) { console.warn("[FP] Team:", msg(e)); }
   const mail = (konto.username || "").toLowerCase();
-  const b = (E.bearbeiter || []).find((x) => x.mail.toLowerCase() === mail);
+  const b = team.find((x) => x.mail === mail);
   const ich = b || { kuerzel: (konto.name || mail).split(/[,\s@.]+/).filter(Boolean).slice(0, 2).map((s) => s[0]).join("").toUpperCase(), name: konto.name || mail, mail };
-  window.FPUebersicht.start(app, { sp, cfg: S, ich, bearbeiter: E.bearbeiter, speicher: "seite" });
+  window.FPUebersicht.start(app, { sp, cfg: S, ich, bearbeiter: team, speicher: "seite" });
 })();

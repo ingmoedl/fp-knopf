@@ -1,5 +1,6 @@
-/* FP-Knopf – Einstellungen. Nur diese Datei muss man für neue Kollegen oder eine neue App ändern.
- * Danach in taskpane.html und uebersicht.html die Zahl hinter „einstellungen.js?v=“ um 1 erhöhen. */
+/* FP-Knopf – Einstellungen. Diese Datei ist öffentlich (GitHub Pages): keine Namen, Mailadressen oder Geheimnisse.
+ * Das Team (Kürzel, Namen, Mails, Farben) steht in SharePoint: Bibliothek FP-Aufgaben → _Import/team.json.
+ * Nach Änderungen hier in taskpane.html und uebersicht.html die Zahl hinter „einstellungen.js?v=“ um 1 erhöhen. */
 
 window.FP_EINSTELLUNGEN = {
   // Anwendungs-ID (Client) der App-Registrierung „FP-Knopf“ in Entra
@@ -14,12 +15,8 @@ window.FP_EINSTELLUNGEN = {
     libRel: "/sites/2024/FPAufgaben",
   },
 
-  // Wer als Bearbeiter wählbar ist; Farben wie die Outlook-Kategorien
-  bearbeiter: [
-    { kuerzel: "SMO", name: "Mödl, Samuel", mail: "moedl@ing-burghausen.de", hinter: "#dff6dd", schrift: "#0b6a0b" },
-    { kuerzel: "HWE", name: "Weidacher, Helmut", mail: "weidacher@ing-burghausen.de", hinter: "#d6f1f2", schrift: "#005b70" },
-    { kuerzel: "LSC", name: "Schweiger, Lena", mail: "schweiger@ing-burghausen.de", hinter: "#fbe3f1", schrift: "#9b0062" },
-  ],
+  // Nur Teammitglieder mit dieser Maildomain werden aus team.json übernommen
+  maildomain: "ing-burghausen.de",
 
   // Gelbe Kategorie an der Mail, sobald der FP-Knopf eine Aufgabe dazu anlegt oder die Mail ablegt.
   // In der Testphase aus: Die Kollegen würden sonst eine Outlook-Aufgabe suchen, die es nicht gibt.

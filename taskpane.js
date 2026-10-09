@@ -127,8 +127,15 @@ function ich() {
   return { kuerzel: teile.map((t) => t[0]).join("").toUpperCase().slice(0, 3) || "?", name: n, mail };
 }
 
+/* Team (Kürzel, Namen, Mails) liegt in SharePoint (_Import/team.json), nicht in der öffentlichen einstellungen.js */
+async function teamLaden() {
+  try { CONFIG.bearbeiter = await window.FPUebersicht.team(sp, { web: CONFIG.web, libRel: CONFIG.libRel }, E.maildomain); }
+  catch (e) { console.warn("[FP] Team:", msg(e)); }
+}
+
 async function nachAnmeldung() {
   el("login").style.display = "none";
+  await teamLaden();
   if (modus === "liste") starteUebersicht();
   try {
     await Promise.all([ladeStammdaten(), ladeMappen()]);
@@ -410,7 +417,7 @@ function firmenQuelle(q) {
     .map((f) => ({ text: f.name, info: f.n ? f.n + " Aufg." : "" }));
 }
 
-/* interne Kürzel in einer Zuweisung („LSC“, „HWE/LSC“) → Mail-Adressen aus einstellungen.js */
+/* interne Kürzel in einer Zuweisung („ABC“, „ABC/XYZ“) → Mail-Adressen aus team.json */
 function internMails(text) {
   const w = String(text || "").split(/[^A-Za-zÄÖÜäöüß]+/);
   return CONFIG.bearbeiter.filter((b) => w.includes(b.kuerzel)).map((b) => b.mail);

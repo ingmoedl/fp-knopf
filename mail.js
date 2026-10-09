@@ -11,6 +11,7 @@
   "use strict";
 
   const ENDE = 0xFFFFFFFA;   // ab hier: Kettenende/Sonderwerte im Compound File
+  const TIEFE = 8;           // höchstens so tief verschachtelte Mails/MIME-Teile (Schutz gegen präparierte Dateien)
 
   /* ---------- Hilfen ---------- */
 
@@ -34,17 +35,24 @@
   function verbund(buf) {
     const u8 = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
     const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
-    if (dv.getUint32(0, true) !== 0xE011CFD0 || dv.getUint32(4, true) !== 0xE11AB1A1) throw new Error("Keine Outlook-Mail (.msg)");
-    const ss = 1 << dv.getUint16(30, true), ms = 1 << dv.getUint16(32, true);
-    const nFat = dv.getUint32(44, true), dir0 = dv.getUint32(48, true), grenze = dv.getUint32(56, true);
+    if (u8.length < 512 || dv.getUint32(0, true) !== 0xE011CFD0 || dv.getUint32(4, true) !== 0xE11AB1A1) throw new Error("Keine Outlook-Mail (.msg)");
+    // Kopfwerte prüfen statt blind übernehmen: Sektorgröße 512 oder 4096, Mini-Sektor 64, Anzahlen höchstens so groß,
+    // wie die Datei Sektoren hat
+    const sShift = dv.getUint16(30, true), mShift = dv.getUint16(32, true);
+    if ((sShift !== 9 && sShift !== 12) || mShift !== 6) throw new Error("Keine gültige Outlook-Mail (.msg)");
+    const ss = 1 << sShift, ms = 1 << mShift;
+    const sektoren = Math.ceil(u8.length / ss) + 1;
+    const nFat = Math.min(dv.getUint32(44, true), sektoren), dir0 = dv.getUint32(48, true), grenze = dv.getUint32(56, true);
     const mf0 = dv.getUint32(60, true), nMf = dv.getUint32(64, true);
     let dif = dv.getUint32(68, true);
-    const nDif = dv.getUint32(72, true);
+    const nDif = Math.min(dv.getUint32(72, true), sektoren);
+    const difBesucht = new Set();
     const off = (s) => (s + 1) * ss;
     const u32 = (o) => (o + 4 <= u8.length ? dv.getUint32(o, true) : ENDE);
     const fatSek = [];
     for (let i = 0; i < 109 && fatSek.length < nFat; i++) fatSek.push(u32(76 + i * 4));
-    for (let k = 0; k < nDif && dif < ENDE; k++) {
+    for (let k = 0; k < nDif && dif < ENDE && !difBesucht.has(dif); k++) {
+      difBesucht.add(dif);
       const n = ss / 4 - 1;
       for (let i = 0; i < n && fatSek.length < nFat; i++) fatSek.push(u32(off(dif) + i * 4));
       dif = u32(off(dif) + n * 4);
@@ -53,8 +61,10 @@
     const fat = new Uint32Array(fatSek.length * proSek);
     fatSek.forEach((s, i) => { for (let j = 0; j < proSek; j++) fat[i * proSek + j] = u32(off(s) + j * 4); });
     const kette = (start, tab) => { const r = []; for (let s = start; s < ENDE && s < tab.length && r.length <= tab.length; s = tab[s]) r.push(s); return r; };
+    // ein Stream kann nicht größer sein als die Datei: Größenangaben aus der Datei nie blind übernehmen
     const lang = (start, groesse) => {
-      const out = new Uint8Array(groesse);
+      const out = new Uint8Array(Math.min(groesse, u8.length));
+      groesse = out.length;
       let p = 0;
       for (const s of kette(start, fat)) { const n = Math.min(ss, groesse - p); if (n <= 0) break; out.set(u8.subarray(off(s), off(s) + n), p); p += n; }
       return out;
@@ -77,7 +87,8 @@
     const minifat = new Uint32Array(mfb.buffer, 0, mfb.length >> 2);
     const mini = lang(wurzel.start, wurzel.groesse);
     const kurz = (start, groesse) => {
-      const out = new Uint8Array(groesse);
+      const out = new Uint8Array(Math.min(groesse, mini.length));
+      groesse = out.length;
       let p = 0;
       for (const s of kette(start, minifat)) { const n = Math.min(ms, groesse - p); if (n <= 0) break; out.set(mini.subarray(s * ms, s * ms + n), p); p += n; }
       return out;
@@ -87,7 +98,7 @@
       inhalt: (e) => (e.groesse < grenze ? kurz(e.start, e.groesse) : lang(e.start, e.groesse)),
       /* Kinder eines Speichers: Name → Index (Rot-Schwarz-Baum über l/r, ab „kind“) */
       kinder(i) {
-        const r = {}, offen = [eintraege[i].kind], gesehen = new Set();
+        const r = Object.create(null), offen = [eintraege[i].kind], gesehen = new Set();
         while (offen.length) {
           const j = offen.pop();
           if (j >= eintraege.length || gesehen.has(j)) continue;
@@ -131,7 +142,10 @@
     return { P, k };
   }
 
-  function msgLesen(c, idx, kopf) {
+  // ctx gilt für die ganze Datei: jeder eingebettete Speicher nur einmal, höchstens 500 Anhänge insgesamt
+  function msgLesen(c, idx, kopf, tiefe, ctx) {
+    tiefe = tiefe || 0;
+    ctx = ctx || { besucht: new Set([idx]), anhaenge: 0 };
     const { P, k } = eigenschaften(c, idx, kopf);
     const cp = codepage(P[0x3FFD] || P[0x3FDE]);
     const s = (id) => (typeof P[id] === "string" ? P[id] : P[id] && P[id].s8 ? decoder(cp).decode(P[id].s8).replace(/\0+$/, "") : "");
@@ -149,7 +163,7 @@
     if (!mail.von.mail && kz) { const v = adressen(kopfWert("From"))[0]; if (v) { mail.von.mail = v.mail; mail.von.name = mail.von.name || v.name; } }
     if (mail.datum && isNaN(mail.datum)) mail.datum = null;
     // Empfänger
-    const empf = Object.keys(k).filter((n) => /^__recip_version1\.0_#/i.test(n)).sort();
+    const empf = Object.keys(k).filter((n) => /^__recip_version1\.0_#/i.test(n)).sort().slice(0, 2000);
     for (const n of empf) {
       const r = eigenschaften(c, k[n], 8).P;
       const rs = (id) => (typeof r[id] === "string" ? r[id] : r[id] && r[id].s8 ? decoder(cp).decode(r[id].s8).replace(/\0+$/, "") : "");
@@ -171,6 +185,7 @@
     // Anhänge
     const anh = Object.keys(k).filter((n) => /^__attach_version1\.0_#/i.test(n)).sort();
     for (const n of anh) {
+      if (++ctx.anhaenge > 500) break;
       const a = eigenschaften(c, k[n], 8);
       const A = a.P;
       const as = (id) => (typeof A[id] === "string" ? A[id] : A[id] && A[id].s8 ? decoder(cp).decode(A[id].s8).replace(/\0+$/, "") : "");
@@ -182,7 +197,9 @@
       const d = A[0x3701];
       if (d instanceof Uint8Array) x.daten = d;
       else if (d && d.speicher != null) {
-        try { x.mail = msgLesen(c, d.speicher, 24); } catch (e) { continue; }
+        if (tiefe >= TIEFE || ctx.besucht.has(d.speicher)) continue;
+        ctx.besucht.add(d.speicher);
+        try { x.mail = msgLesen(c, d.speicher, 24, tiefe + 1, ctx); } catch (e) { continue; }
         if (!/\.(msg|eml)$/i.test(x.name)) x.name = (x.mail.betreff || x.name).replace(/[\\/:*?"<>|]/g, " ") + ".msg";
       } else continue;
       mail.anhaenge.push(x);
@@ -205,9 +222,12 @@
 
   function rtfEntpacken(b) {
     const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
-    const comp = dv.getUint32(0, true), groesse = dv.getUint32(4, true), art = dv.getUint32(8, true);
+    const comp = dv.getUint32(0, true), art = dv.getUint32(8, true);
+    let groesse = dv.getUint32(4, true);
     if (art === 0x414C454D) return b.subarray(16, 16 + groesse);       // „MELA“: nicht komprimiert
     if (art !== 0x75465A4C) return null;                                // „LZFu“
+    // mehr als 17 Byte je 2 Byte Eingabe kann LZFu nicht erzeugen: angebliche Größe darauf begrenzen
+    if (groesse > (b.length + 16) * 9) groesse = (b.length + 16) * 9;
     const dict = new Uint8Array(4096);
     for (let i = 0; i < RTF_VORLAGE.length; i++) dict[i] = RTF_VORLAGE.charCodeAt(i);
     let w = RTF_VORLAGE.length;
@@ -324,15 +344,15 @@
   function adressen(s) {
     const r = [];
     let cur = "", q = false, w = 0;
-    for (const ch of String(s || "")) {
+    for (const ch of String(s || "").slice(0, 16384)) {
       if (ch === '"') q = !q;
       else if (ch === "<" && !q) w++;
       else if (ch === ">" && !q) w--;
       if ((ch === "," || ch === ";") && !q && w <= 0) { r.push(cur); cur = ""; } else cur += ch;
     }
     r.push(cur);
-    // erst trennen, dann Namen dekodieren: „=?utf-8?Q?M=C3=B6dl=2C_Samuel?=“ enthält ein Komma
-    return r.map((t) => t.trim()).filter(Boolean).map((t) => {
+    // erst trennen, dann Namen dekodieren: „=?utf-8?Q?M=C3=BCller=2C_Hans?=“ enthält ein Komma
+    return r.map((t) => t.trim().slice(0, 1024)).filter(Boolean).slice(0, 1000).map((t) => {
       const m = /^(.*?)<([^>]*)>\s*$/.exec(t);
       const ohne = (x) => woerter(x.trim().replace(/^"(.*)"$/, "$1").replace(/\\(.)/g, "$1"));
       return m ? { name: ohne(m[1]), mail: m[2].trim() } : { name: "", mail: ohne(t) };
@@ -346,7 +366,7 @@
     for (const ch of String(v || "")) { if (ch === '"') q = !q; if (ch === ";" && !q) { t.push(cur); cur = ""; } else cur += ch; }
     t.push(cur);
     const wert = t.shift().trim().toLowerCase();
-    const p = {}, stuecke = {};
+    const p = Object.create(null), stuecke = Object.create(null);   // Namen wie „__proto__“ aus der Mail sind nur Daten
     for (const x of t) {
       const m = /^\s*([^=\s]+)\s*=\s*(.*?)\s*$/.exec(x);
       if (!m) continue;
@@ -376,13 +396,14 @@
     let k = s.indexOf("\r\n\r\n"), sep = 4;
     const k2 = s.indexOf("\n\n");
     if (k < 0 || (k2 >= 0 && k2 < k)) { k = k2; sep = 2; }
-    const kopfBytes = k < 0 ? b : b.subarray(0, k);
+    // Kopf höchstens 256 KB, einzelne Werte höchstens 16 KB (lange präparierte Zeilen bremsen sonst die Auswertung)
+    const kopfBytes = k < 0 ? b.subarray(0, Math.min(b.length, 65536)) : b.subarray(0, k);
     let kopfText;
     try { kopfText = new TextDecoder("utf-8", { fatal: true }).decode(kopfBytes); } catch (e) { kopfText = decoder("windows-1252").decode(kopfBytes); }
-    const kopf = {};
+    const kopf = Object.create(null);
     kopfText.replace(/\r?\n[ \t]+/g, " ").split(/\r?\n/).forEach((z) => {
-      const m = /^([^:\s]+)\s*:\s*(.*)$/.exec(z);
-      if (m && !(m[1].toLowerCase() in kopf)) kopf[m[1].toLowerCase()] = m[2];
+      const m = /^([^:\s]{1,100})\s*:\s*(.*)$/.exec(z.slice(0, 16500));
+      if (m && !(m[1].toLowerCase() in kopf)) kopf[m[1].toLowerCase()] = m[2].slice(0, 16384);
     });
     const ct = parameter(kopf["content-type"] || "text/plain");
     const cd = parameter(kopf["content-disposition"] || "");
@@ -425,7 +446,8 @@
     return r;
   }
 
-  function emlLesen(b) {
+  function emlLesen(b, tiefe) {
+    tiefe = tiefe || 0;
     const t = mimeTeil(b);
     const mail = {
       betreff: woerter(t.kopf.subject), von: adressen(t.kopf.from)[0] || { name: "", mail: "" },
@@ -434,17 +456,19 @@
     };
     if (mail.datum && isNaN(mail.datum)) mail.datum = null;
     const text = (x) => decoder(x.ct.charset || "utf-8").decode(entschluesseln(x));
-    const gehe = (x, alternativ) => {
+    const gehe = (x, alternativ, ebene) => {
+      ebene = ebene || 0;
       if (/^multipart\//.test(x.typ) && x.ct.boundary) {
-        const kinder = mehrteilig(x.koerper, x.ct.boundary).map(mimeTeil);
+        if (ebene >= TIEFE * 2) return;
+        const kinder = mehrteilig(x.koerper, x.ct.boundary).slice(0, 500).map(mimeTeil);
         // bei „alternative“ die reichste Fassung (HTML) für den Text, der Rest zählt nicht als Anhang
         if (x.typ === "multipart/alternative") {
           const h = kinder.filter((k) => k.typ === "text/html" || /^multipart\//.test(k.typ)).pop() || kinder[kinder.length - 1];
-          for (const k of kinder) if (k === h || (!h && k.typ === "text/plain")) gehe(k, true);
+          for (const k of kinder) if (k === h || (!h && k.typ === "text/plain")) gehe(k, true, ebene + 1);
           if (!mail.html && !mail.text) { const p = kinder.find((k) => k.typ === "text/plain"); if (p) mail.text = text(p); }
           return;
         }
-        kinder.forEach((k) => gehe(k, alternativ));
+        kinder.forEach((k) => gehe(k, alternativ, ebene + 1));
         return;
       }
       const name = x.cd.p.filename || x.ct.name || "";
@@ -454,7 +478,7 @@
       if (!anhang && /^text\/(html|plain)$/.test(x.typ)) return;
       const daten = entschluesseln(x);
       const a = { name: name || (x.typ === "message/rfc822" ? "Mail.eml" : "Anhang"), typ: x.typ, daten, cid: (x.kopf["content-id"] || "").trim().replace(/^<|>$/g, ""), versteckt: false };
-      if (x.typ === "message/rfc822") { try { a.mail = emlLesen(daten); if (a.name === "Mail.eml") a.name = (a.mail.betreff || "Mail") + ".eml"; } catch (e) { } }
+      if (x.typ === "message/rfc822" && tiefe < TIEFE) { try { a.mail = emlLesen(daten, tiefe + 1); if (a.name === "Mail.eml") a.name = (a.mail.betreff || "Mail") + ".eml"; } catch (e) { } }
       mail.anhaenge.push(a);
     };
     gehe(t, false);

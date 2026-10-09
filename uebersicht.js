@@ -1,8 +1,8 @@
 /* FP-Übersicht – alle FP-Aufgaben im Blick (ing Burghausen GmbH)
  * Eine Komponente für drei Orte: eigene Seite (uebersicht.html: Browser, Edge-App, Handy) und der
- * Outlook-Seitenbereich des FP-Knopfs (schmal). Aufbau wie die Outlook-Aufgabenliste von fp@:
+ * Outlook-Seitenbereich des FP-Knopfs (schmal). Aufbau wie die Outlook-Aufgabenliste des FP-Postfachs:
  * Fälligkeit › Firma, darin nach Zuweisung. Zuweisung = Spalte FPAnsprechperson (in Outlook „Abrechnungsinfo“):
- * eine Person bei der Firma oder ein internes Kürzel (SMO, HWE, LSC); interne Kürzel erscheinen farbig und
+ * eine Person bei der Firma oder ein internes Kürzel (drei Buchstaben); interne Kürzel erscheinen farbig und
  * bestimmen die Bearbeiter (FPBearbeiter, für „Meine“ und Benachrichtigungen). Outlook-Kategorien zählen nicht.
  * Daten nur in der Bibliothek „FP-Aufgaben“ (eine Mappe = eine Aufgabe), keine eigene Kopie:
  * jede Änderung geht sofort nach SharePoint, Änderungen der Kollegen holt die Liste alle 20 Sekunden
@@ -11,7 +11,7 @@
  *
  * FPUebersicht.start(element, {
  *   sp(pfad, {method, body, roh}) → JSON (roh: ArrayBuffer), wirft Error mit .status  (Anmeldung macht die Seite drumherum)
- *   cfg: {host, web, listId, libRel}, ich: {kuerzel, name, mail}, bearbeiter: [...] (einstellungen.js),
+ *   cfg: {host, web, listId, libRel}, ich: {kuerzel, name, mail}, bearbeiter: [...] (FPUebersicht.team: _Import/team.json),
  *   schmal: true erzwingt die schmale Darstellung, oeffnen(url) für Links (Outlook: eigener Browser),
  *   inOutlook: true im Outlook-Seitenbereich (dort kein Knopf „In Outlook öffnen“)
  * }) */
@@ -45,7 +45,18 @@
   const MAILDATEI = /\.(msg|eml)$/i;
   const handy = () => /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent));
 
-  window.FPUebersicht = { start: (root, o) => { const a = new App(root, o); a.init(); return a; } };
+  /* Team (Kürzel, Name, Mail, Farben): liegt in SharePoint (_Import/team.json), nicht in der öffentlichen
+   * einstellungen.js. Jeder Eintrag wird streng geprüft, denn Farben landen in style-Attributen. */
+  const teamPruefen = (liste, domain) => (Array.isArray(liste) ? liste : []).filter((b) => b &&
+    /^[A-Z]{2,4}$/.test(b.kuerzel) && typeof b.name === "string" && b.name.length <= 80 &&
+    /^[a-z0-9._%+-]{1,64}@[a-z0-9.-]{1,100}$/i.test(b.mail || "") && (!domain || b.mail.toLowerCase().endsWith("@" + domain.toLowerCase())) &&
+    /^#[0-9a-f]{6}$/i.test(b.hinter) && /^#[0-9a-f]{6}$/i.test(b.schrift)).slice(0, 30)
+    .map((b) => ({ kuerzel: b.kuerzel, name: b.name, mail: b.mail.toLowerCase(), hinter: b.hinter, schrift: b.schrift }));
+
+  window.FPUebersicht = {
+    start: (root, o) => { const a = new App(root, o); a.init(); return a; },
+    team: async (sp, cfg, domain) => teamPruefen(await sp(`${cfg.web}/_api/web/GetFileByServerRelativePath(decodedurl='${pfad(cfg.libRel + "/_Import/team.json")}')/$value`), domain),
+  };
 
   function App(root, o) {
     this.root = root;
@@ -53,7 +64,7 @@
     this.c = o.cfg;
     this.ich = Object.assign({ kuerzel: "?", name: "", mail: "" }, o.ich);
     this.ich.mail = (this.ich.mail || "").toLowerCase();
-    this.leute = (o.bearbeiter || []).map((b) => Object.assign({}, b, { mail: b.mail.toLowerCase() }));
+    this.leute = teamPruefen(o.bearbeiter);
     this.items = new Map();
     this.punkte = new Set();          // „neu für mich“ seit dem letzten Besuch
     this.blink = new Map();           // gerade von anderen geändert: Id → hervorheben bis
@@ -72,7 +83,7 @@
   }
 
   App.prototype.liste = function () { return `${this.c.web}/_api/web/lists(guid'${this.c.listId}')`; };
-  /* interne Kürzel in einer Zuweisung („LSC“, „HWE/LSC“) → Mail-Adressen aus einstellungen.js */
+  /* interne Kürzel in einer Zuweisung („ABC“, „ABC/XYZ“) → Mail-Adressen aus team.json */
   App.prototype.intern = function (text) { const w = woerter(text); return this.leute.filter((b) => w.includes(b.kuerzel)).map((b) => b.mail); };
   /* wer ist zuständig: interne Kürzel der Zuweisung, dazu eingetragene Bearbeiter (z. B. aus dem FP-Knopf) */
   App.prototype.wer = function (a) { return [...new Set(this.intern(a.ansprech).concat(a.leute))]; };
@@ -688,7 +699,7 @@
     const a = this.items.get(id);
     const el = this.$('[data-d="mails"]');
     try {
-      const f = await this.o.sp(`${this.c.web}/_api/web/GetFolderByServerRelativePath(decodedurl='${pfad(a.rel)}')/Files?$select=Name,ServerRelativeUrl&$top=500`);
+      const f = await this.o.sp(`${this.c.web}/_api/web/GetFolderByServerRelativePath(decodedurl='${pfad(a.rel)}')/Files?$select=Name,ServerRelativeUrl,Length&$top=500`);
       if (this.wahl !== id || !el.isConnected) return;
       const dateien = ((f && f.value) || []).sort((x, y) => y.Name.localeCompare(x.Name));
       this.$('[data-d="mailtitel"]').textContent = `Mails und Dateien (${dateien.length})`;
@@ -697,13 +708,14 @@
         const zeit = m ? `${m[3]}.${m[2]}.${m[1].slice(2)} ${m[4]}:${m[5]}` : "";
         // Mails zeigt die Übersicht selbst an (mail.js); andere Dateien in der SharePoint-Vorschau
         const url = this.c.host + x.ServerRelativeUrl.split("/").map(encodeURIComponent).join("/") + (MAILDATEI.test(x.Name) ? "" : "?web=1");
-        return `<a data-datei="${html(x.ServerRelativeUrl)}" href="${html(url)}" target="_blank" rel="noopener" title="${html(x.Name)}">${zeit ? `<small>${zeit}</small>` : ""}${html(m ? m[6] : x.Name)}</a>`;
+        return `<a data-datei="${html(x.ServerRelativeUrl)}" data-groesse="${Number(x.Length) || 0}" href="${html(url)}" target="_blank" rel="noopener" title="${html(x.Name)}">${zeit ? `<small>${zeit}</small>` : ""}${html(m ? m[6] : x.Name)}</a>`;
       }).join("") : `<div class="leer">Keine Mails in der Mappe.</div>`;
       el.onclick = (ev) => {
         const x = ev.target.closest("a[data-datei]");
         if (!x) return;
         const rel = x.dataset.datei, name = rel.slice(rel.lastIndexOf("/") + 1);
-        if (MAILDATEI.test(name) && window.FPMail) { ev.preventDefault(); this.mailKlick(rel, name); return; }
+        if (MAILDATEI.test(name) && window.FPMail) { ev.preventDefault(); this.mailKlick(rel, name, Number(x.dataset.groesse) || 0); return; }
+        if (gesperrt(name)) { ev.preventDefault(); this.toast("Aus Sicherheitsgründen gesperrt (wie in Outlook): " + name); return; }
         if (this.o.oeffnen) { ev.preventDefault(); this.o.oeffnen(x.href); }
       };
     } catch (e) { if (el.isConnected) el.innerHTML = `<div class="leer">Mails ließen sich nicht laden: ${html(msg(e))}</div>`; }
@@ -718,12 +730,17 @@
   App.prototype.outlookMoeglich = function () { return !this.o.inOutlook && !handy(); };
   App.prototype.outlookDirekt = function () { return this.outlookMoeglich() && lies("fpu-mail-outlook") === "1"; };
 
-  App.prototype.mailKlick = function (rel, name) {
-    if (this.outlookDirekt()) {
+  const MAX_ANZEIGE = 40 * 1048576;   // größere Mails nicht im Browser zerlegen (Speicher, Handy)
+
+  App.prototype.mailKlick = function (rel, name, groesse) {
+    const zuGross = groesse > MAX_ANZEIGE;
+    if (this.outlookDirekt() || (zuGross && this.outlookMoeglich())) {
       this.inOutlook(rel);
-      this.toast("Öffnet in Outlook …", "Hier anzeigen", () => this.zeigeMail(rel, name));
+      if (zuGross) this.toast("Mail ist zu groß für die Anzeige hier: öffnet in Outlook …");
+      else this.toast("Öffnet in Outlook …", "Hier anzeigen", () => this.zeigeMail(rel, name));
       return;
     }
+    if (zuGross) { this.toast("Mail ist zu groß für die Anzeige hier (" + Math.round(groesse / 1048576) + " MB). Bitte am PC in Outlook öffnen."); return; }
     this.zeigeMail(rel, name);
   };
 
@@ -783,8 +800,22 @@
   const datenUrl = (a) => {
     let s = "";
     for (let i = 0; i < a.daten.length; i += 32768) s += String.fromCharCode.apply(null, a.daten.subarray(i, i + 32768));
-    return `data:${MIME[endung(a.name)] || (/^image\//.test(a.typ) ? a.typ : "image/png")};base64,${btoa(s)}`;
+    // Typ kommt aus der Mail: nur „image/…“ ohne Sonderzeichen, sonst könnte er aus dem Attribut ausbrechen
+    return `data:${MIME[endung(a.name)] || (/^image\/[a-z0-9.+-]{1,40}$/i.test(a.typ) ? a.typ : "image/png")};base64,${btoa(s)}`;
   };
+  /* Anhänge, die Outlook selbst sperrt (Programme, Skripte, Verknüpfungen …): auch hier nicht ausliefern */
+  const GESPERRT = new Set(("ade adp app application appref-ms appinstaller appx appxbundle asp aspx asx bas bat bgi cab cer chm cmd cnt " +
+    "com cpl crt csh der diagcab exe fxp gadget grp hlp hpj hta htc img inf ins iso isp its jar jnlp js jse ksh library-ms lnk mad maf " +
+    "mag mam maq mar mas mat mau mav maw mcf mda mdb mde mdt mdw mdz msc msh msh1 msh2 mshxml msh1xml msh2xml msi msix msixbundle msp " +
+    "mst msu ops osd pcd pif pl plg prf prg printerexport ps1 ps1xml ps2 ps2xml psc1 psc2 psd1 psdm1 pst py pyc pyo pyw pyz pyzw rdp " +
+    "reg scf scr sct searchconnector-ms settingcontent-ms shb shs theme tmp udl url vb vbe vbp vbs vhd vhdx vsmacros vsw webpnp " +
+    "website ws wsb wsc wsf wsh xbap xll xnk").split(" "));
+  // Webseiten als Anhang (beliebte Phishing-Masche): nur nach Rückfrage herunterladen
+  const RISKANT = new Set(["htm", "html", "xhtml", "shtml", "mht", "mhtml", "svg", "svgz"]);
+  // unsichtbare Steuer-/Richtungszeichen vor der Endungsprüfung entfernen (z. B. „Rechnung<RLO>fdp.exe“)
+  const UNSICHTBAR = new RegExp("[" + [[0x200B, 0x200F], [0x202A, 0x202E], [0x2066, 0x2069], [0xFEFF, 0xFEFF]].map(([a, b]) => String.fromCharCode(a) + "-" + String.fromCharCode(b)).join("") + "]", "g");
+  const endungRoh = (name) => ((/\.([a-z0-9-]{1,20})[\s.]*$/i.exec(String(name || "").replace(UNSICHTBAR, "")) || [])[1] || "").toLowerCase();
+  const gesperrt = (name) => GESPERRT.has(endungRoh(name));
   const MAILSTIL = "html,body{height:auto!important;min-height:0!important}body{margin:0;padding:14px 16px 24px;font-family:Calibri,Aptos,'Segoe UI',Arial,sans-serif;" +
     "font-size:11pt;color:#242424;word-wrap:break-word}img{max-width:100%;height:auto}pre.fpu-text{white-space:pre-wrap;font-family:inherit;margin:0}a{color:#0b5394}";
 
@@ -801,19 +832,22 @@
         const a = cids.get(k.toLowerCase());
         if (!a) return x;
         a.inline = true;
-        return vor + datenUrl(a);
+        a.datenUrl = a.datenUrl || datenUrl(a);      // je Anhang nur einmal kodieren, auch bei vielen Verweisen
+        return vor + a.datenUrl;
       });
       h = h.replace(/\b(href|src|action|formaction)\s*=\s*(["']?)\s*(javascript\s*:|vbscript\s*:|data\s*:\s*text)[^"'\s>]*/gi, "$1=$2#");
+      // Weiterleitung (meta refresh), <base>, Vorab-Verbindungen (<link rel=dns-prefetch …>) braucht keine Mail: weg
+      h = h.replace(/<meta\b[^>]*http-equiv[^>]*>|<base\b[^>]*>|<link\b[^>]*>/gi, "");
       bilder = /<img[^>]+src\s*=\s*["']?\s*(https?:)?\/\//i.test(h) || /url\(\s*["']?\s*https?:/i.test(h) || /background\s*=\s*["']?https?:/i.test(h);
     } else {
       h = `<pre class="fpu-text">${html(m.text || "").replace(/(https?:\/\/[^\s<>"]+|www\.[^\s<>"]+)/g, (u) => `<a href="${/^www\./.test(u) ? "https://" + u : u}">${u}</a>`)}</pre>`;
     }
     const quellen = extern ? " https: http:" : "";
-    const kopf = `<meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:${quellen}; style-src 'unsafe-inline'${quellen}; font-src data:${quellen}"><style>${MAILSTIL}</style>`;
-    if (/<head[^>]*>/i.test(h)) h = h.replace(/<head[^>]*>/i, (x) => x + kopf);
-    else if (/<html[^>]*>/i.test(h)) h = h.replace(/<html[^>]*>/i, (x) => x + "<head>" + kopf + "</head>");
-    else h = `<!DOCTYPE html><html><head>${kopf}</head><body>${h}</body></html>`;
-    return { doc: h, bilder };
+    const kopf = `<meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:${quellen}; style-src 'unsafe-inline'${quellen}; font-src data:${quellen}; base-uri 'none'; form-action 'none'"><meta name="referrer" content="no-referrer"><style>${MAILSTIL}</style>`;
+    // eigener Kopf immer ganz vorn, vor allem aus der Mail: so gilt die CSP auch, wenn die Mail ihren <head> spät,
+    // falsch oder gar nicht hat (der <head> der Mail wird dann vom Browser übergangen, ihre Styles bleiben).
+    // Ein DOCTYPE der Mail ist danach wirkungslos; srcdoc-Dokumente laufen ohnehin immer im Standardmodus.
+    return { doc: `<html><head>${kopf}</head>` + h, bilder };
   };
 
   App.prototype.mailZeichnen = function () {
@@ -860,7 +894,7 @@
         </div>
         ${anh.length ? `<div class="fpu-manh">${anh.map(([a, i]) => `<button data-a="${i}" title="${html(a.name)}"><i>${html(a.mail ? "Mail" : endung(a.name).toUpperCase() || "Datei")}</i><span>${html(a.name)}</span>${a.daten ? `<small>${groesse(a.daten.length)}</small>` : ""}</button>`).join("")}</div>` : ""}
         ${d.bilder && !e.extern ? `<div class="fpu-mhinweis">Bilder aus dem Internet wurden nicht geladen. <button data-m="bilder">Bilder laden</button></div>` : ""}
-        <iframe class="fpu-mtext" title="Text der Mail" sandbox="allow-same-origin"></iframe>`;
+        <iframe class="fpu-mtext" title="Text der Mail" sandbox="allow-same-origin" referrerpolicy="no-referrer"></iframe>`;
       e.doc = d.doc;
     }
     ov.innerHTML = kopf + `<div class="fpu-mscroll">${rumpf}</div>`;
@@ -883,26 +917,34 @@
       ifr.onload = () => {
         let d;
         try { d = ifr.contentDocument; } catch (x) { return; }
-        if (!d || !d.body) return;
+        // Eigenschaften und Methoden des Mail-Dokuments über die Prototypen ansprechen: benannte Elemente der Mail
+        // (z. B. <img name="body">) können sie sonst verdecken („DOM clobbering“)
+        const holen = (obj, p) => Object.getOwnPropertyDescriptor(Document.prototype, p).get.call(obj);
+        let wurzel, koerper;
+        try { wurzel = holen(d, "documentElement"); koerper = holen(d, "body"); } catch (x) { return; }
+        if (!wurzel || !koerper) return;
         let n = 0, h = 0;
         const passe = () => {
-          const neu = Math.max(d.documentElement.scrollHeight, d.body.scrollHeight, Math.ceil(d.documentElement.getBoundingClientRect().height)) + 2;
+          const neu = Math.max(wurzel.scrollHeight, koerper.scrollHeight, Math.ceil(wurzel.getBoundingClientRect().height)) + 2;
           if (Math.abs(neu - h) > 4 && n++ < 60) { h = neu; ifr.style.height = neu + "px"; }
         };
         passe();
-        if (window.ResizeObserver) new ResizeObserver(passe).observe(d.body);
-        d.querySelectorAll("img").forEach((i) => i.addEventListener("load", passe));
+        if (window.ResizeObserver) new ResizeObserver(passe).observe(koerper);
+        Document.prototype.querySelectorAll.call(d, "img").forEach((i) => EventTarget.prototype.addEventListener.call(i, "load", passe));
         // Links nie im iframe: im Browser (Outlook: eigenes Fenster), Mail-Adressen im Mailprogramm
-        d.addEventListener("click", (ev) => {
-          const a = ev.target.closest && ev.target.closest("a[href]");
+        EventTarget.prototype.addEventListener.call(d, "click", (ev) => {
+          const t = ev.target;
+          const a = t && t.nodeType === 1 ? Element.prototype.closest.call(t, "a[href]") : null;
           if (!a) return;
-          const ziel = a.getAttribute("href") || "";
+          const ziel = Element.prototype.getAttribute.call(a, "href") || "";
           if (/^#/.test(ziel)) return;
           ev.preventDefault();
-          if (/^https?:/i.test(a.href)) { if (this.o.oeffnen) this.o.oeffnen(a.href); else window.open(a.href, "_blank", "noopener"); }
-          else if (/^(mailto|tel):/i.test(a.href)) location.href = a.href;
-        });
-        d.addEventListener("keydown", (ev) => { if (ev.key === "Escape") this.mailZu(); });
+          let url;
+          try { url = new URL(ziel, "about:blank").href; } catch (x) { return; }
+          if (/^https?:/i.test(url)) { if (this.o.oeffnen) this.o.oeffnen(url); else window.open(url, "_blank", "noopener"); }
+          else if (/^(mailto|tel):/i.test(url)) location.href = url;
+        }, true);
+        EventTarget.prototype.addEventListener.call(d, "keydown", (ev) => { if (ev.key === "Escape") this.mailZu(); });
       };
       ifr.srcdoc = e.doc;
     }
@@ -910,7 +952,8 @@
   };
 
   /* Anhang: eingebettete Mail und Bilder hier zeigen, PDF am PC hier, sonst (Word, Excel, PDF am Handy) als Datei
-   * an das Gerät geben – das öffnet sie in der passenden App. HTML/SVG nie im eigenen Fenster (Skripte). */
+   * an das Gerät geben – das öffnet sie in der passenden App. HTML/SVG nie im eigenen Fenster (Skripte).
+   * Programme und Skripte (Liste GESPERRT) gar nicht. */
   App.prototype.anhangOeffnen = function (a) {
     if (!a) return;
     if (a.mail) { this.mailAuf({ name: a.name, mail: a.mail }); return; }
@@ -918,14 +961,19 @@
     if (MAILDATEI.test(a.name)) {
       try { this.mailAuf({ name: a.name, mail: window.FPMail.lesen(a.daten, a.name), daten: a.daten }); return; } catch (x) { }
     }
+    if (gesperrt(a.name)) { this.toast("Aus Sicherheitsgründen gesperrt (wie in Outlook): " + a.name); return; }
     const typ = MIME[endung(a.name)] || "";
     if (/^image\//.test(typ) || (typ === "application/pdf" && !handy())) {
       this.mailAuf({ datei: { name: a.name, typ, url: URL.createObjectURL(new Blob([a.daten], { type: typ })) } });
       return;
     }
-    const u = URL.createObjectURL(new Blob([a.daten], { type: "application/octet-stream" }));
-    speichern(u, a.name);
-    setTimeout(() => URL.revokeObjectURL(u), 60000);
-    this.toast("Heruntergeladen: " + a.name);
+    const laden = () => {
+      const u = URL.createObjectURL(new Blob([a.daten], { type: "application/octet-stream" }));
+      speichern(u, a.name);
+      setTimeout(() => URL.revokeObjectURL(u), 60000);
+      this.toast("Heruntergeladen: " + a.name);
+    };
+    if (RISKANT.has(endungRoh(a.name))) { this.toast("Webseite als Anhang – nur öffnen, wenn du dem Absender traust: " + a.name, "Trotzdem herunterladen", laden); return; }
+    laden();
   };
 })();
