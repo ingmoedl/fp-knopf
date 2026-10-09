@@ -109,8 +109,36 @@
 .fpu-gespeichert { font-size: 12px; color: var(--ok); min-height: 16px; margin-top: 8px; }
 .fpu-gespeichert.fehler { color: var(--red); }
 
+/* Mail ansehen (mail.js): über der ganzen Übersicht, eine Bildlaufleiste für Kopf und Text */
+.fpu-mail { position: absolute; inset: 0; z-index: 40; background: #fff; display: flex; flex-direction: column; outline: none; }
+.fpu-mkopf { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line); flex: none; }
+.fpu-mkopf .fpu-x { font-size: 18px; }
+.fpu-mtitel { flex: 1; min-width: 0; font-weight: 600; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fpu .fpu-mdirekt { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--muted); white-space: nowrap; cursor: pointer; }
+.fpu-mscroll { flex: 1; overflow: auto; -webkit-overflow-scrolling: touch; }
+.fpu-mmeta { padding: 12px 16px 8px; border-bottom: 1px solid #f0f0f0; }
+.fpu-mvon { display: flex; gap: 10px; align-items: center; }
+.fpu-mvon b { font-weight: 600; }
+.fpu-mvon small { color: var(--muted); font-size: 12px; word-break: break-all; }
+.fpu-mav { flex: none; width: 38px; height: 38px; border-radius: 50%; background: #0b5394; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 600; }
+.fpu-mzeit { font-size: 12px; color: var(--muted); margin-top: 1px; }
+.fpu-mleute { font-size: 12.5px; color: var(--ink); margin-top: 6px; line-height: 1.45; }
+.fpu-mleute > span:first-child { color: var(--muted); margin-right: 6px; }
+.fpu-manh { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 16px; border-bottom: 1px solid #f0f0f0; }
+.fpu-manh button { display: flex; align-items: center; gap: 6px; max-width: 100%; padding: 4px 9px 4px 4px; border: 1px solid var(--line2); border-radius: 4px; background: #fff; cursor: pointer; font-size: 12.5px; text-align: left; }
+.fpu-manh button:hover { background: var(--soft); }
+.fpu-manh i { font-style: normal; font-size: 10px; font-weight: 700; color: #fff; background: #8a8886; border-radius: 3px; padding: 3px 4px; min-width: 28px; text-align: center; }
+.fpu-manh span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.fpu-manh small { color: var(--muted); white-space: nowrap; }
+.fpu-mhinweis { font-size: 12px; color: var(--muted); background: #fafafa; padding: 6px 16px; border-bottom: 1px solid #f0f0f0; }
+.fpu-mhinweis button { border: none; background: none; color: var(--accent); font-weight: 600; cursor: pointer; padding: 0 0 0 4px; font-size: 12px; }
+.fpu-mtext { display: block; width: 100%; height: 300px; border: none; }
+.fpu-mpdf { display: block; width: 100%; height: 100%; border: none; }
+.fpu-mbild { padding: 12px; text-align: center; }
+.fpu-mbild img { max-width: 100%; height: auto; }
+
 /* Hinweise unten */
-.fpu-toast { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); background: #323130; color: #fff; padding: 8px 12px; border-radius: 6px; font-size: 13px; display: none; align-items: center; gap: 12px; z-index: 20; max-width: calc(100% - 24px); box-shadow: 0 4px 14px rgba(0,0,0,.25); }
+.fpu-toast { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); background: #323130; color: #fff; padding: 8px 12px; border-radius: 6px; font-size: 13px; display: none; align-items: center; gap: 12px; z-index: 50; max-width: calc(100% - 24px); box-shadow: 0 4px 14px rgba(0,0,0,.25); }
 .fpu-toast.da { display: flex; }
 .fpu-toast button { background: none; border: none; color: #9cc3ef; font-weight: 600; cursor: pointer; padding: 0; }
 .fpu-pop { position: absolute; z-index: 30; background: #fff; border: 1px solid var(--line2); border-radius: 6px; box-shadow: 0 6px 18px rgba(0,0,0,.18); padding: 6px; display: flex; flex-direction: column; gap: 2px; min-width: 170px; }

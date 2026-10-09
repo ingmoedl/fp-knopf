@@ -66,6 +66,7 @@
       if (opts.body !== undefined) headers["Content-Type"] = "application/json;odata=nometadata";
       const r = await fetch(S.host + path, { method: opts.method || "GET", headers, body: opts.body === undefined ? undefined : JSON.stringify(opts.body) });
       if (r.status === 429 || r.status === 503) { await warte((Number(r.headers.get("Retry-After")) || 3 * v) * 1000); continue; }
+      if (r.ok && opts.roh) return r.arrayBuffer();                 // Dateiinhalt (Mails)
       const t = await r.text();
       let j = null; try { j = t ? JSON.parse(t) : null; } catch (_) { }
       if (!r.ok) {

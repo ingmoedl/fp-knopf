@@ -10,9 +10,10 @@
  * inzwischen geändert hat, und überschreibt dann nichts.
  *
  * FPUebersicht.start(element, {
- *   sp(pfad, {method, body}) → JSON,  wirft Error mit .status   (Anmeldung macht die Seite drumherum)
+ *   sp(pfad, {method, body, roh}) → JSON (roh: ArrayBuffer), wirft Error mit .status  (Anmeldung macht die Seite drumherum)
  *   cfg: {host, web, listId, libRel}, ich: {kuerzel, name, mail}, bearbeiter: [...] (einstellungen.js),
- *   schmal: true erzwingt die schmale Darstellung, oeffnen(url) für Links (Outlook: eigener Browser)
+ *   schmal: true erzwingt die schmale Darstellung, oeffnen(url) für Links (Outlook: eigener Browser),
+ *   inOutlook: true im Outlook-Seitenbereich (dort kein Knopf „In Outlook öffnen“)
  * }) */
 (function () {
   "use strict";
@@ -41,6 +42,8 @@
   const woerter = (s) => String(s || "").split(/[^A-Za-zÄÖÜäöüß]+/).filter(Boolean);
   const lies = (k) => { try { return localStorage.getItem(k); } catch (e) { return null; } };
   const schreib = (k, v) => { try { localStorage.setItem(k, v); } catch (e) { } };
+  const MAILDATEI = /\.(msg|eml)$/i;
+  const handy = () => /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent));
 
   window.FPUebersicht = { start: (root, o) => { const a = new App(root, o); a.init(); return a; } };
 
@@ -146,7 +149,7 @@
     });
     this.ziehen(liste);
     r.addEventListener("keydown", (ev) => {
-      if (ev.key === "Escape") { if (this.pop) this.schliessePop(); else if (this.wahl) this.schliesseDetail(); }
+      if (ev.key === "Escape") { if (this.mails && this.mails.length) this.mailZu(); else if (this.pop) this.schliessePop(); else if (this.wahl) this.schliesseDetail(); }
       if (ev.key === "/" && !/^(INPUT|TEXTAREA|SELECT)$/.test(ev.target.tagName)) { ev.preventDefault(); suche.focus(); }
     });
     document.addEventListener("mousedown", (ev) => { if (this.pop && !this.pop.contains(ev.target)) this.schliessePop(); });
@@ -692,9 +695,237 @@
       el.innerHTML = dateien.length ? dateien.map((x) => {
         const m = /^(\d{4})-(\d{2})-(\d{2})_(\d{2})(\d{2}) (.*)$/.exec(x.Name);
         const zeit = m ? `${m[3]}.${m[2]}.${m[1].slice(2)} ${m[4]}:${m[5]}` : "";
-        return `<a data-extern href="${html(this.c.host + x.ServerRelativeUrl.split("/").map(encodeURIComponent).join("/"))}" target="_blank" rel="noopener" title="${html(x.Name)}">${zeit ? `<small>${zeit}</small>` : ""}${html(m ? m[6] : x.Name)}</a>`;
+        // Mails zeigt die Übersicht selbst an (mail.js); andere Dateien in der SharePoint-Vorschau
+        const url = this.c.host + x.ServerRelativeUrl.split("/").map(encodeURIComponent).join("/") + (MAILDATEI.test(x.Name) ? "" : "?web=1");
+        return `<a data-datei="${html(x.ServerRelativeUrl)}" href="${html(url)}" target="_blank" rel="noopener" title="${html(x.Name)}">${zeit ? `<small>${zeit}</small>` : ""}${html(m ? m[6] : x.Name)}</a>`;
       }).join("") : `<div class="leer">Keine Mails in der Mappe.</div>`;
-      el.querySelectorAll("[data-extern]").forEach((x) => { x.onclick = (ev) => { if (this.o.oeffnen) { ev.preventDefault(); this.o.oeffnen(x.href); } }; });
+      el.onclick = (ev) => {
+        const x = ev.target.closest("a[data-datei]");
+        if (!x) return;
+        const rel = x.dataset.datei, name = rel.slice(rel.lastIndexOf("/") + 1);
+        if (MAILDATEI.test(name) && window.FPMail) { ev.preventDefault(); this.mailKlick(rel, name); return; }
+        if (this.o.oeffnen) { ev.preventDefault(); this.o.oeffnen(x.href); }
+      };
     } catch (e) { if (el.isConnected) el.innerHTML = `<div class="leer">Mails ließen sich nicht laden: ${html(msg(e))}</div>`; }
+  };
+
+  /* ---------- Mail ansehen ----------
+   * Klick auf eine Mail: die Übersicht lädt die Datei und zeigt sie selbst an (mail.js) – kein Download, keine
+   * Sicherheitsabfrage, auch am Handy. Am PC zusätzlich „In Outlook öffnen“: Link fp-mail:…, den der FP-Abgleich
+   * (FP-Sync, FP-Mail.ps1) auf dem PC einrichtet; er holt die Datei und öffnet sie in Outlook.
+   * Jede Ebene (Mail, eingebettete Mail, Anhang) ist ein Eintrag im Verlauf: Zurück-Taste am Handy schließt sie. */
+
+  App.prototype.outlookMoeglich = function () { return !this.o.inOutlook && !handy(); };
+  App.prototype.outlookDirekt = function () { return this.outlookMoeglich() && lies("fpu-mail-outlook") === "1"; };
+
+  App.prototype.mailKlick = function (rel, name) {
+    if (this.outlookDirekt()) {
+      this.inOutlook(rel);
+      this.toast("Öffnet in Outlook …", "Hier anzeigen", () => this.zeigeMail(rel, name));
+      return;
+    }
+    this.zeigeMail(rel, name);
+  };
+
+  App.prototype.inOutlook = function (rel) {
+    const b = new TextEncoder().encode(rel);
+    let s = "";
+    b.forEach((x) => { s += String.fromCharCode(x); });
+    location.href = "fp-mail:" + btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  };
+
+  App.prototype.zeigeMail = async function (rel, name) {
+    const e = { rel, name, laedt: true };
+    this.mailAuf(e);
+    try {
+      const buf = await this.o.sp(`${this.c.web}/_api/web/GetFileByServerRelativePath(decodedurl='${pfad(rel)}')/$value`, { roh: true });
+      e.daten = new Uint8Array(buf);
+      e.mail = window.FPMail.lesen(e.daten, name);
+    } catch (x) { e.fehler = msg(x); }
+    e.laedt = false;
+    if (this.mails && this.mails[this.mails.length - 1] === e) this.mailZeichnen();
+  };
+
+  App.prototype.mailAuf = function (e) {
+    this.mails = this.mails || [];
+    this.mails.push(e);
+    if (!this.mailVerlauf) {
+      this.mailVerlauf = () => {
+        const n = this.mailEbene();
+        if (this.mails.length <= n) return;
+        while (this.mails.length > n) this.mailWeg(this.mails.pop());
+        this.mailZeichnen();
+      };
+      window.addEventListener("popstate", this.mailVerlauf);
+    }
+    try { history.pushState({ fpuMail: this.mails.length, fpu: this.id }, ""); } catch (x) { }
+    this.mailZeichnen();
+  };
+
+  /* Ebene laut Verlauf; Einträge aus einer früheren Sitzung (Seite neu geladen) zählen nicht */
+  App.prototype.mailEbene = function () { const s = history.state; return s && s.fpu === this.id ? s.fpuMail || 0 : 0; };
+
+  App.prototype.mailZu = function () {
+    if (!this.mails || !this.mails.length) return;
+    if (this.mailEbene() === this.mails.length) { history.back(); return; }
+    this.mailWeg(this.mails.pop());
+    this.mailZeichnen();
+  };
+
+  App.prototype.mailWeg = function (e) { if (e && e.datei) URL.revokeObjectURL(e.datei.url); };
+
+  const MIME = {
+    pdf: "application/pdf", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", bmp: "image/bmp", webp: "image/webp",
+  };
+  const endung = (name) => ((/\.([a-z0-9]{1,5})$/i.exec(name || "") || [])[1] || "").toLowerCase();
+  const groesse = (n) => (n >= 1048576 ? (n / 1048576).toFixed(1).replace(".", ",") + " MB" : Math.max(1, Math.round(n / 1024)) + " KB");
+  const speichern = (url, name) => { const a = document.createElement("a"); a.href = url; a.download = name; a.rel = "noopener"; document.body.appendChild(a); a.click(); a.remove(); };
+  const datenUrl = (a) => {
+    let s = "";
+    for (let i = 0; i < a.daten.length; i += 32768) s += String.fromCharCode.apply(null, a.daten.subarray(i, i + 32768));
+    return `data:${MIME[endung(a.name)] || (/^image\//.test(a.typ) ? a.typ : "image/png")};base64,${btoa(s)}`;
+  };
+  const MAILSTIL = "html,body{height:auto!important;min-height:0!important}body{margin:0;padding:14px 16px 24px;font-family:Calibri,Aptos,'Segoe UI',Arial,sans-serif;" +
+    "font-size:11pt;color:#242424;word-wrap:break-word}img{max-width:100%;height:auto}pre.fpu-text{white-space:pre-wrap;font-family:inherit;margin:0}a{color:#0b5394}";
+
+  /* Mailtext als eigenes Dokument für ein abgeschottetes iframe: keine Skripte, Bilder aus der Mail selbst (cid:),
+   * Bilder aus dem Internet erst auf Wunsch (wie Outlook) */
+  App.prototype.mailDokument = function (m, extern) {
+    const cids = new Map();
+    m.anhaenge.forEach((a) => { if (a.cid && a.daten) cids.set(a.cid.toLowerCase(), a); });
+    let h = m.html, bilder = false;
+    if (h) {
+      h = h.replace(/(["'(=]\s*)cid:([^"')\s>]+)/gi, (x, vor, id) => {
+        let k = id;
+        try { k = decodeURIComponent(id); } catch (y) { }
+        const a = cids.get(k.toLowerCase());
+        if (!a) return x;
+        a.inline = true;
+        return vor + datenUrl(a);
+      });
+      h = h.replace(/\b(href|src|action|formaction)\s*=\s*(["']?)\s*(javascript\s*:|vbscript\s*:|data\s*:\s*text)[^"'\s>]*/gi, "$1=$2#");
+      bilder = /<img[^>]+src\s*=\s*["']?\s*(https?:)?\/\//i.test(h) || /url\(\s*["']?\s*https?:/i.test(h) || /background\s*=\s*["']?https?:/i.test(h);
+    } else {
+      h = `<pre class="fpu-text">${html(m.text || "").replace(/(https?:\/\/[^\s<>"]+|www\.[^\s<>"]+)/g, (u) => `<a href="${/^www\./.test(u) ? "https://" + u : u}">${u}</a>`)}</pre>`;
+    }
+    const quellen = extern ? " https: http:" : "";
+    const kopf = `<meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:${quellen}; style-src 'unsafe-inline'${quellen}; font-src data:${quellen}"><style>${MAILSTIL}</style>`;
+    if (/<head[^>]*>/i.test(h)) h = h.replace(/<head[^>]*>/i, (x) => x + kopf);
+    else if (/<html[^>]*>/i.test(h)) h = h.replace(/<html[^>]*>/i, (x) => x + "<head>" + kopf + "</head>");
+    else h = `<!DOCTYPE html><html><head>${kopf}</head><body>${h}</body></html>`;
+    return { doc: h, bilder };
+  };
+
+  App.prototype.mailZeichnen = function () {
+    let ov = this.$(".fpu-mail");
+    const e = this.mails && this.mails[this.mails.length - 1];
+    if (!e) { if (ov) ov.remove(); return; }
+    if (!ov) {
+      ov = document.createElement("div");
+      ov.className = "fpu-mail";
+      ov.setAttribute("role", "dialog");
+      ov.tabIndex = -1;
+      this.root.appendChild(ov);
+    }
+    const m = e.mail;
+    const titel = e.datei ? e.datei.name : m ? m.betreff || "(ohne Betreff)" : e.name.replace(/^\d{4}-\d{2}-\d{2}_\d{4} /, "").replace(MAILDATEI, "");
+    const outlook = e.rel && this.outlookMoeglich();
+    const kopf = `<div class="fpu-mkopf">
+        <button class="fpu-x" data-m="zurueck" title="Zurück (Esc)" aria-label="Zurück">←</button>
+        <div class="fpu-mtitel" title="${html(titel)}">${html(titel)}</div>
+        ${outlook ? `<button class="fpu-knopf" data-m="outlook" title="Öffnet die Mail in Outlook, z. B. zum Antworten oder Weiterleiten">In Outlook öffnen</button>
+          <label class="fpu-mdirekt" title="Mails künftig gleich in Outlook öffnen statt hier"><input type="checkbox" data-m="direkt"${this.outlookDirekt() ? " checked" : ""}> immer</label>` : ""}
+        ${e.daten || e.datei ? `<button class="fpu-x fpu-mladen" data-m="datei" title="Datei herunterladen" aria-label="Datei herunterladen">⤓</button>` : ""}
+      </div>`;
+    let rumpf;
+    if (e.laedt) rumpf = `<div class="fpu-leer">Mail wird geladen …</div>`;
+    else if (e.fehler) rumpf = `<div class="fpu-leer">Die Mail ließ sich nicht anzeigen: ${html(e.fehler)}</div>`;
+    else if (e.datei) {
+      rumpf = /^image\//.test(e.datei.typ) ? `<div class="fpu-mbild"><img src="${html(e.datei.url)}" alt="${html(e.datei.name)}"></div>`
+        : `<iframe class="fpu-mpdf" title="${html(e.datei.name)}" src="${html(e.datei.url)}"></iframe>`;
+    } else {
+      const d = this.mailDokument(m, e.extern);
+      const anh = m.anhaenge.map((a, i) => [a, i]).filter(([a]) => !a.inline && !a.versteckt);
+      const person = (p) => (p.name && p.mail && p.name !== p.mail ? `<span title="${html(p.mail)}">${html(p.name)}</span>` : html(p.name || p.mail));
+      const dt = m.datum;
+      const zeit = dt ? `${WT[dt.getDay()]} ${z2(dt.getDate())}.${z2(dt.getMonth() + 1)}.${dt.getFullYear()} ${z2(dt.getHours())}:${z2(dt.getMinutes())}` : "";
+      const von = m.von.name || m.von.mail || "Unbekannt";
+      const kz = von.split(/[,\s.]+/).filter(Boolean);
+      const ini = /^\S+@/.test(von) ? von.slice(0, 2).toUpperCase() : (/,/.test(von) ? kz.slice(0, 2).reverse() : kz.slice(0, 2)).map((t) => t[0]).join("").toUpperCase();
+      const adresse = m.von.mail && m.von.name && m.von.name.toLowerCase() !== m.von.mail.toLowerCase();
+      rumpf = `<div class="fpu-mmeta">
+          <div class="fpu-mvon"><span class="fpu-mav">${html(ini)}</span><div><b>${html(von)}</b>${adresse ? ` <small>&lt;${html(m.von.mail)}&gt;</small>` : ""}<div class="fpu-mzeit">${zeit}</div></div></div>
+          ${m.an.length ? `<div class="fpu-mleute"><span>An</span>${m.an.map(person).join("; ")}</div>` : ""}
+          ${m.cc.length ? `<div class="fpu-mleute"><span>Cc</span>${m.cc.map(person).join("; ")}</div>` : ""}
+        </div>
+        ${anh.length ? `<div class="fpu-manh">${anh.map(([a, i]) => `<button data-a="${i}" title="${html(a.name)}"><i>${html(a.mail ? "Mail" : endung(a.name).toUpperCase() || "Datei")}</i><span>${html(a.name)}</span>${a.daten ? `<small>${groesse(a.daten.length)}</small>` : ""}</button>`).join("")}</div>` : ""}
+        ${d.bilder && !e.extern ? `<div class="fpu-mhinweis">Bilder aus dem Internet wurden nicht geladen. <button data-m="bilder">Bilder laden</button></div>` : ""}
+        <iframe class="fpu-mtext" title="Text der Mail" sandbox="allow-same-origin"></iframe>`;
+      e.doc = d.doc;
+    }
+    ov.innerHTML = kopf + `<div class="fpu-mscroll">${rumpf}</div>`;
+    ov.onclick = (ev) => {
+      const b = ev.target.closest("[data-m], [data-a]");
+      if (!b) return;
+      if (b.dataset.a) { this.anhangOeffnen(m.anhaenge[Number(b.dataset.a)]); return; }
+      const was = b.dataset.m;
+      if (was === "zurueck") this.mailZu();
+      else if (was === "outlook") { this.inOutlook(e.rel); this.toast("Öffnet in Outlook … (beim ersten Mal fragt der Browser nach)"); }
+      else if (was === "direkt") schreib("fpu-mail-outlook", b.checked ? "1" : "0");
+      else if (was === "bilder") { e.extern = true; this.mailZeichnen(); }
+      else if (was === "datei") {
+        if (e.datei) speichern(e.datei.url, e.datei.name);
+        else { const u = URL.createObjectURL(new Blob([e.daten], { type: "application/octet-stream" })); speichern(u, e.name); setTimeout(() => URL.revokeObjectURL(u), 60000); }
+      }
+    };
+    const ifr = ov.querySelector(".fpu-mtext");
+    if (ifr) {
+      ifr.onload = () => {
+        let d;
+        try { d = ifr.contentDocument; } catch (x) { return; }
+        if (!d || !d.body) return;
+        let n = 0, h = 0;
+        const passe = () => {
+          const neu = Math.max(d.documentElement.scrollHeight, d.body.scrollHeight, Math.ceil(d.documentElement.getBoundingClientRect().height)) + 2;
+          if (Math.abs(neu - h) > 4 && n++ < 60) { h = neu; ifr.style.height = neu + "px"; }
+        };
+        passe();
+        if (window.ResizeObserver) new ResizeObserver(passe).observe(d.body);
+        d.querySelectorAll("img").forEach((i) => i.addEventListener("load", passe));
+        // Links nie im iframe: im Browser (Outlook: eigenes Fenster), Mail-Adressen im Mailprogramm
+        d.addEventListener("click", (ev) => {
+          const a = ev.target.closest && ev.target.closest("a[href]");
+          if (!a) return;
+          const ziel = a.getAttribute("href") || "";
+          if (/^#/.test(ziel)) return;
+          ev.preventDefault();
+          if (/^https?:/i.test(a.href)) { if (this.o.oeffnen) this.o.oeffnen(a.href); else window.open(a.href, "_blank", "noopener"); }
+          else if (/^(mailto|tel):/i.test(a.href)) location.href = a.href;
+        });
+        d.addEventListener("keydown", (ev) => { if (ev.key === "Escape") this.mailZu(); });
+      };
+      ifr.srcdoc = e.doc;
+    }
+    ov.focus({ preventScroll: true });
+  };
+
+  /* Anhang: eingebettete Mail und Bilder hier zeigen, PDF am PC hier, sonst (Word, Excel, PDF am Handy) als Datei
+   * an das Gerät geben – das öffnet sie in der passenden App. HTML/SVG nie im eigenen Fenster (Skripte). */
+  App.prototype.anhangOeffnen = function (a) {
+    if (!a) return;
+    if (a.mail) { this.mailAuf({ name: a.name, mail: a.mail }); return; }
+    if (!a.daten) return;
+    if (MAILDATEI.test(a.name)) {
+      try { this.mailAuf({ name: a.name, mail: window.FPMail.lesen(a.daten, a.name), daten: a.daten }); return; } catch (x) { }
+    }
+    const typ = MIME[endung(a.name)] || "";
+    if (/^image\//.test(typ) || (typ === "application/pdf" && !handy())) {
+      this.mailAuf({ datei: { name: a.name, typ, url: URL.createObjectURL(new Blob([a.daten], { type: typ })) } });
+      return;
+    }
+    const u = URL.createObjectURL(new Blob([a.daten], { type: "application/octet-stream" }));
+    speichern(u, a.name);
+    setTimeout(() => URL.revokeObjectURL(u), 60000);
+    this.toast("Heruntergeladen: " + a.name);
   };
 })();

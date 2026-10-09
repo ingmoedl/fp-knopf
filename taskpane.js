@@ -9,7 +9,7 @@
 const E = window.FP_EINSTELLUNGEN || {};
 const S = E.sharepoint || {};
 const CONFIG = {
-  version: "0.4",
+  version: "0.6",
   clientId: E.clientId,                             // App-Registrierung „FP-Knopf“ (einstellungen.js)
   tenantId: E.tenantId || "1571141a-75a9-43a3-ad47-8d613cfbb3e6",
   spHost: S.host || "https://ingburghausengmbh.sharepoint.com",
@@ -144,7 +144,7 @@ async function nachAnmeldung() {
 function starteUebersicht() {
   if (uebersicht || !konto() || !window.FPUebersicht) return;
   uebersicht = window.FPUebersicht.start(el("liste-bereich"), {
-    sp, schmal: true, speicher: "outlook", ich: ich(), bearbeiter: CONFIG.bearbeiter, oeffnen: browserFenster,
+    sp, schmal: true, speicher: "outlook", ich: ich(), bearbeiter: CONFIG.bearbeiter, oeffnen: browserFenster, inOutlook: !standalone,
     cfg: { host: CONFIG.spHost, web: CONFIG.web, listId: CONFIG.listId, libRel: CONFIG.libRel },
   });
 }
@@ -173,6 +173,7 @@ async function sp(path, opts = {}) {
       body: opts.body === undefined ? undefined : (binaer ? opts.body : JSON.stringify(opts.body)),
     });
     if (r.status === 429 || r.status === 503) { await warte((Number(r.headers.get("Retry-After")) || 3 * v) * 1000); continue; }
+    if (r.ok && opts.roh) return r.arrayBuffer();                   // Dateiinhalt (Mails in der Übersicht)
     const txt = await r.text();
     let j = null; try { j = txt ? JSON.parse(txt) : null; } catch (_) { }
     if (!r.ok) {
