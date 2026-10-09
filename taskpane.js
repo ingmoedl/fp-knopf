@@ -231,7 +231,9 @@ function absenderName() {
 
 async function ladeMappen() {
   const r = await sp(liste() + "/items?$select=Id,FileLeafRef,FileRef,FPFirma,FPFaelligkeit&$filter=FSObjType eq 1 and FPStatus eq 'Offen'&$top=5000");
-  mappen = ((r && r.value) || []).map((x) => ({ id: x.Id, name: x.FileLeafRef, rel: x.FileRef, firma: x.FPFirma || "", faellig: x.FPFaelligkeit || "" }));
+  // nur die aktive Liste, nicht der Unterordner „Archiv“
+  mappen = ((r && r.value) || []).filter((x) => x.FileRef.slice(0, x.FileRef.lastIndexOf("/")) === CONFIG.libRel)
+    .map((x) => ({ id: x.Id, name: x.FileLeafRef, rel: x.FileRef, firma: x.FPFirma || "", faellig: x.FPFaelligkeit || "" }));
   zeigeMappen();
 }
 

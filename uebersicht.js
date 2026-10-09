@@ -112,6 +112,8 @@
         <select class="fpu-gruppe" aria-label="Gruppieren nach">${GRUPPEN.map(([k, t]) => `<option value="${k}">${t}</option>`).join("")}</select>
         <label class="fpu-check" title="Heute erledigte Aufgaben durchgestrichen anzeigen"><input type="checkbox" data-r="heute"> heute erledigte</label>
         <span class="fpu-live" title="Aktualisiert sich alle 20 Sekunden. Klicken = jetzt aktualisieren"><i></i><span data-r="live">lädt …</span></span>
+        <a class="fpu-archiv" data-extern target="_blank" rel="noopener" title="Erledigte und in Outlook gelöschte Aufgaben (SharePoint, Unterordner „Archiv“)"
+          href="${html(`${this.c.host}${this.c.libRel}/Forms/Archiv.aspx?id=${encodeURIComponent(this.c.libRel + "/Archiv")}`)}">Archiv ↗</a>
         <div class="fpu-filter"></div>
       </div>
       <div class="fpu-haupt">
@@ -129,6 +131,7 @@
     heute.checked = !!this.st.heute;
     heute.onchange = () => { this.st.heute = heute.checked; this.merke(); this.zeichne(); };
     this.$(".fpu-live").onclick = () => this.laden(false);
+    this.$(".fpu-archiv").onclick = (ev) => { if (this.o.oeffnen) { ev.preventDefault(); this.o.oeffnen(ev.currentTarget.href); } };
     this.$(".fpu-filter").onclick = (ev) => {
       const b = ev.target.closest("[data-filter]");
       if (!b) return;
@@ -186,7 +189,8 @@
       try { r = await this.o.sp(this.abfrage()); }
       catch (e) { if (this.mitOrdner && e.status === 400) { this.mitOrdner = false; r = await this.o.sp(this.abfrage()); } else throw e; }
       const neu = new Map();
-      for (const x of (r && r.value) || []) neu.set(x.Id, this.aufgabe(x));
+      // nur die aktive Liste: Mappen direkt in der Bibliothek, nicht im Unterordner „Archiv“
+      for (const x of (r && r.value) || []) if ((x.FileRef || "").slice(0, x.FileRef.lastIndexOf("/")) === this.c.libRel) neu.set(x.Id, this.aufgabe(x));
       for (const [id, a] of neu) {
         const alt = this.items.get(id);
         const vonAnderen = a.von.mail && a.von.mail !== this.ich.mail;
