@@ -590,18 +590,18 @@ function setzeModus(m) {
   if (m === "liste") starteUebersicht();
 }
 
-/* Vorschläge: Mappen, deren Name Wörter aus dem Betreff enthält, zuerst */
+/* Alle offenen Mappen; solche, deren Name Wörter aus dem Betreff enthält, zuerst */
 function zeigeMappen() {
   const box = el("liste");
   if (!mappen.length) { box.innerHTML = `<div class="leer">${konto() ? "Keine offenen Aufgaben gefunden." : "Bitte zuerst anmelden."}</div>`; return; }
+  el("suche").placeholder = `Name oder Firma tippen … (${mappen.length} offene)`;
   const q = el("suche").value.trim().toLowerCase();
   const it = mailItem();
   const woerter = ((it && it.subject) || "").toLowerCase().split(/[^a-z0-9äöüß]+/).filter((w) => w.length >= 4 && !/^\d+$/.test(w));
   const treffer = mappen
     .filter((m) => !q || (m.name + " " + m.firma).toLowerCase().includes(q))
     .map((m) => ({ m, p: woerter.filter((w) => m.name.toLowerCase().includes(w)).length }))
-    .sort((a, b) => b.p - a.p || a.m.name.localeCompare(b.m.name, "de"))
-    .slice(0, 60);
+    .sort((a, b) => b.p - a.p || a.m.name.localeCompare(b.m.name, "de"));
   box.innerHTML = treffer.length ? "" : `<div class="leer">Nichts gefunden.</div>`;
   for (const { m } of treffer) {
     const d = document.createElement("div");
