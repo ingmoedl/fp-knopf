@@ -1,7 +1,9 @@
 /* FP-Übersicht – alle FP-Aufgaben im Blick (ing Burghausen GmbH)
  * Eine Komponente für drei Orte: eigene Seite (uebersicht.html: Browser, Edge-App, Handy) und der
  * Outlook-Seitenbereich des FP-Knopfs (schmal). Aufbau wie die Outlook-Aufgabenliste von fp@:
- * Fälligkeit › Firma, darin nach Ansprechperson, Bearbeiter als farbige Kürzel.
+ * Fälligkeit › Firma, darin nach Zuweisung. Zuweisung = Spalte FPAnsprechperson (in Outlook „Abrechnungsinfo“):
+ * eine Person bei der Firma oder ein internes Kürzel (SMO, HWE, LSC); interne Kürzel erscheinen farbig und
+ * bestimmen die Bearbeiter (FPBearbeiter, für „Meine“ und Benachrichtigungen). Outlook-Kategorien zählen nicht.
  * Daten nur in der Bibliothek „FP-Aufgaben“ (eine Mappe = eine Aufgabe), keine eigene Kopie:
  * jede Änderung geht sofort nach SharePoint, Änderungen der Kollegen holt die Liste alle 20 Sekunden
  * und sofort beim Zurückkehren ins Fenster. Vor dem Speichern prüft sie, ob jemand anderes die Aufgabe
@@ -19,7 +21,7 @@
   const SEL = "Id,FileLeafRef,FileRef,FPFirma,FPAnsprechperson,FPFaelligkeit,FPStatus,FPErledigtAm,Modified," +
     "Editor/Title,Editor/EMail,FPBearbeiter/EMail,FPBearbeiter/Title,Folder/ItemCount";
   const EXP = "Editor,FPBearbeiter,Folder";
-  const GRUPPEN = [["faellig-firma", "Fälligkeit › Firma"], ["faellig", "Fälligkeit"], ["firma", "Firma"], ["bearbeiter", "Bearbeiter"], ["ansprech", "Ansprechperson"]];
+  const GRUPPEN = [["faellig-firma", "Fälligkeit › Firma"], ["faellig", "Fälligkeit"], ["firma", "Firma"], ["ansprech", "Zuweisung"]];
   const WT = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
 
   const z2 = (n) => String(n).padStart(2, "0");
@@ -36,6 +38,7 @@
   const sauber = (s) => (s || "").replace(/[\x00-\x1F"*:<>?\/\\|]/g, " ").replace(/\s+/g, " ").replace(/^[\s.~]+|[\s.]+$/g, "");
   const vergleich = (a, b) => a.localeCompare(b, "de", { sensitivity: "base" });
   const leuteWert = (mails) => (mails.length ? JSON.stringify(mails.map((m) => ({ Key: "i:0#.f|membership|" + m }))) : "");
+  const woerter = (s) => String(s || "").split(/[^A-Za-zÄÖÜäöüß]+/).filter(Boolean);
   const lies = (k) => { try { return localStorage.getItem(k); } catch (e) { return null; } };
   const schreib = (k, v) => { try { localStorage.setItem(k, v); } catch (e) { } };
 
@@ -61,10 +64,18 @@
     let st = {};
     try { st = JSON.parse(lies(this.schluessel) || "{}"); } catch (e) { }
     this.st = Object.assign({ filter: "alle", gruppe: "faellig-firma", heute: true, zu: [] }, st);
+    if (!GRUPPEN.some((g) => g[0] === this.st.gruppe)) this.st.gruppe = "faellig-firma";
     this.id = "fpu" + Math.random().toString(36).slice(2, 7);
   }
 
   App.prototype.liste = function () { return `${this.c.web}/_api/web/lists(guid'${this.c.listId}')`; };
+  /* interne Kürzel in einer Zuweisung („LSC“, „HWE/LSC“) → Mail-Adressen aus einstellungen.js */
+  App.prototype.intern = function (text) { const w = woerter(text); return this.leute.filter((b) => w.includes(b.kuerzel)).map((b) => b.mail); };
+  /* wer ist zuständig: interne Kürzel der Zuweisung, dazu eingetragene Bearbeiter (z. B. aus dem FP-Knopf) */
+  App.prototype.wer = function (a) { return [...new Set(this.intern(a.ansprech).concat(a.leute))]; };
+  App.prototype.zuweisungWerte = function (text) {
+    return [{ FieldName: "FPAnsprechperson", FieldValue: text }, { FieldName: "FPBearbeiter", FieldValue: leuteWert(this.intern(text)) }];
+  };
   App.prototype.merke = function () { this.st.zu = this.st.zu.slice(-300); schreib(this.schluessel, JSON.stringify(this.st)); };
   App.prototype.$ = function (sel) { return this.root.querySelector(sel); };
 
@@ -179,11 +190,12 @@
       for (const [id, a] of neu) {
         const alt = this.items.get(id);
         const vonAnderen = a.von.mail && a.von.mail !== this.ich.mail;
+        const meine = this.wer(a).includes(this.ich.mail);
         if (erstes) {
-          if (vonAnderen && a.leute.includes(this.ich.mail) && this.letzterBesuch && Date.parse(a.geaendert) > this.letzterBesuch) this.punkte.add(id);
+          if (vonAnderen && meine && this.letzterBesuch && Date.parse(a.geaendert) > this.letzterBesuch) this.punkte.add(id);
         } else if (vonAnderen && (!alt || alt.geaendert !== a.geaendert)) {
           this.blink.set(id, Date.now() + 8000);
-          if (a.leute.includes(this.ich.mail)) this.punkte.add(id);
+          if (meine) this.punkte.add(id);
         }
       }
       for (const [id, bis] of this.blink) if (bis < Date.now()) this.blink.delete(id);
@@ -228,7 +240,9 @@
       for (const p of (x.FPAnsprechperson || "").split(/[\/_;]+/).map((s) => s.trim()).filter(Boolean)) personen[p] = (personen[p] || 0) + 1;
     }
     const sortiert = (o) => Object.entries(o).sort((a, b) => b[1] - a[1] || vergleich(a[0], b[0])).map((e) => e[0]);
-    this.stamm = { firmen: sortiert(firmen), personen: sortiert(personen) };
+    // interne Kürzel zuerst
+    const team = this.leute.map((b) => b.kuerzel);
+    this.stamm = { firmen: sortiert(firmen), personen: team.concat(sortiert(personen).filter((p) => !team.includes(p))) };
     document.getElementById(this.id + "-firmen").innerHTML = this.stamm.firmen.map((x) => `<option value="${html(x)}">`).join("");
     document.getElementById(this.id + "-personen").innerHTML = this.stamm.personen.slice(0, 400).map((x) => `<option value="${html(x)}">`).join("");
   };
@@ -306,8 +320,7 @@
     const werte = [{ FieldName: "ContentType", FieldValue: "FP-Aufgabe" }, { FieldName: "FPStatus", FieldValue: "Offen" },
       { FieldName: "FPVerlauf", FieldValue: `${z2(d.getDate())}.${z2(d.getMonth() + 1)}.${d.getFullYear()} ${this.ich.kuerzel}: angelegt` }];
     if (w.firma) werte.push({ FieldName: "FPFirma", FieldValue: w.firma });
-    if (w.ansprech) werte.push({ FieldName: "FPAnsprechperson", FieldValue: w.ansprech });
-    if (w.leute.length) werte.push({ FieldName: "FPBearbeiter", FieldValue: leuteWert(w.leute) });
+    if (w.ansprech) werte.push(...this.zuweisungWerte(w.ansprech));
     if (w.faellig) werte.push({ FieldName: "FPFaelligkeit", FieldValue: deLang(w.faellig) });
     const r = await this.o.sp(this.liste() + `/items(${id})/ValidateUpdateListItem`, { method: "POST", body: { formValues: werte, bNewDocumentUpdate: false } });
     const fe = ((r && r.value) || []).filter((x) => x.HasException).map((x) => x.FieldName + ": " + x.ErrorMessage);
@@ -325,11 +338,16 @@
     return { kuerzel: t.slice(0, 2).map((s) => s[0]).join("").toUpperCase(), name: name || mail, mail };
   };
 
-  App.prototype.chips = function (a) {
-    if (!a.leute.length) return `<span class="fpu-ohne">ohne Zuweisung</span>`;
-    return a.leute.map((m, i) => {
-      const b = this.kuerzel(m, a.namen[i]);
-      return `<span class="fpu-k" title="${html(b.name)}" style="${b.hinter ? `background:${b.hinter};color:${b.schrift}` : ""}">${html(b.kuerzel)}</span>`;
+  /* Zuweisung wie in Outlook; interne Kürzel als farbige Marke */
+  App.prototype.zuweisung = function (text) {
+    if (!text) return `<span class="fpu-ohne">ohne Zuweisung</span>`;
+    const team = new Map(this.leute.map((b) => [b.kuerzel, b]));
+    const teile = String(text).split(/([^A-Za-zÄÖÜäöüß]+)/);
+    if (!teile.some((t) => team.has(t))) return html(text);
+    return teile.map((t) => {
+      const b = team.get(t);
+      if (b) return `<span class="fpu-k" title="${html(b.name)}" style="background:${b.hinter};color:${b.schrift}">${html(t)}</span>`;
+      return /^[^A-Za-zÄÖÜäöüß]+$/.test(t) ? " " : html(t);
     }).join("");
   };
 
@@ -338,9 +356,9 @@
     const f = this.st.filter;
     return [...this.items.values()].filter((a) => {
       if (a.status === "Erledigt" && !this.st.heute) return false;
-      if (f === "meine" && !a.leute.includes(this.ich.mail)) return false;
-      if (f === "ohne" && a.leute.length) return false;
-      if (f.includes("@") && !a.leute.includes(f)) return false;
+      if (f === "meine" && !this.wer(a).includes(this.ich.mail)) return false;
+      if (f === "ohne" && a.ansprech) return false;
+      if (f.includes("@") && !this.wer(a).includes(f)) return false;
       if (q && !(a.name + " " + a.firma + " " + a.ansprech).toLowerCase().includes(q)) return false;
       return true;
     });
@@ -374,19 +392,17 @@
       });
     }
     if (g === "firma") return bilde(liste, (a) => a.firma, firmaTitel, leerZuletzt, (k) => ({ art: "firma", firma: k })).map((gr) => { gr.aufgaben.sort(nachDatum); return gr; });
-    if (g === "ansprech") return bilde(liste, (a) => a.ansprech, (k) => k || "Ohne Ansprechperson", leerZuletzt, () => ({ art: "ansprech" })).map((gr) => { gr.aufgaben.sort(nachDatum); return gr; });
-    // Bearbeiter: eine Aufgabe steht bei jedem ihrer Bearbeiter (wie Kategorien in Outlook)
-    const reihe = this.leute.map((b) => b.mail);
-    const pos = (m) => (m === "" ? 9999 : reihe.indexOf(m) === -1 ? 999 : reihe.indexOf(m));
-    return bilde(liste, (a) => (a.leute.length ? a.leute : [""]), (k) => (k ? (() => { const b = this.kuerzel(k); return b.kuerzel + " · " + b.name; })() : "Ohne Zuweisung"),
-      (x, y) => pos(x) - pos(y) || vergleich(x, y), () => ({ art: "bearbeiter" })).map((gr) => { gr.aufgaben.sort(nachDatum); return gr; });
+    // Zuweisung: interne Kürzel zuerst, dann Personen alphabetisch, „Ohne Zuweisung“ zuletzt
+    const intern = (k) => (k && this.intern(k).length ? 0 : 1);
+    return bilde(liste, (a) => a.ansprech, (k) => k || "Ohne Zuweisung", (x, y) => (x === "") - (y === "") || intern(x) - intern(y) || vergleich(x, y),
+      (k) => ({ art: "ansprech", zuweisung: k })).map((gr) => { gr.aufgaben.sort(nachDatum); return gr; });
   };
 
   App.prototype.spalten = function () {
     const g = this.st.gruppe;
     const mitFirma = g !== "firma" && g !== "faellig-firma";
     const mitDatum = g !== "faellig" && g !== "faellig-firma";
-    return { mitFirma, mitDatum, vorlage: ["26px", "minmax(0, 1fr)", mitFirma ? "110px" : null, "150px", "140px", mitDatum ? "86px" : null, this.mitOrdner ? "38px" : null].filter(Boolean).join(" ") };
+    return { mitFirma, mitDatum, vorlage: ["26px", "minmax(0, 1fr)", mitFirma ? "110px" : null, "180px", mitDatum ? "86px" : null, this.mitOrdner ? "38px" : null].filter(Boolean).join(" ") };
   };
 
   App.prototype.zeile = function (a, sp, gk) {
@@ -394,13 +410,12 @@
     const ueber = a.status === "Offen" && a.faellig && a.faellig < heute;
     const kl = ["fpu-zeile", ueber ? "ueber" : "", a.status === "Erledigt" ? "erledigt" : "", (this.blink.get(a.id) || 0) > Date.now() ? "neu" : "", this.wahl === a.id ? "gewaehlt" : ""].filter(Boolean).join(" ");
     const titel = a.status === "Erledigt" ? `erledigt${a.von.name ? " von " + a.von.name : ""}` : `zuletzt geändert von ${a.von.name || "?"}, ${wann(a.geaendert)}`;
-    const unter = [sp.mitFirma ? a.firma : "", a.ansprech, sp.mitDatum && a.faellig ? deKurz(a.faellig) : ""].filter(Boolean).join(" · ");
+    const unter = [sp.mitFirma ? a.firma : "", sp.mitDatum && a.faellig ? deKurz(a.faellig) : ""].filter(Boolean).join(" · ");
     return `<div class="${kl}" data-id="${a.id}" data-gk="${html(gk)}" draggable="true" title="${html(titel)}">
       <span class="box"><button class="fpu-box${a.status === "Erledigt" ? " an" : ""}" data-akt="erledigt" aria-label="${a.status === "Erledigt" ? "Wieder öffnen" : "Als erledigt markieren"}"></button></span>
       <div class="n">${this.punkte.has(a.id) ? `<span class="punkt" title="Neu oder geändert für dich"></span>` : ""}${html(a.name)}<div class="unter">${html(unter)}</div></div>
       ${sp.mitFirma ? `<span class="f breit">${html(a.firma)}</span>` : ""}
-      <span class="p breit">${html(a.ansprech)}</span>
-      <span class="fpu-leute" data-akt="leute" title="Bearbeiter ändern">${this.chips(a)}</span>
+      <span class="p">${this.zuweisung(a.ansprech)}</span>
       ${sp.mitDatum ? `<span class="d breit">${a.faellig ? deLang(a.faellig) : ""}</span>` : ""}
       ${this.mitOrdner ? `<span class="m breit" title="Mails in der Mappe">${a.mails ? "✉ " + a.mails : ""}</span>` : ""}
     </div>`;
@@ -413,9 +428,9 @@
     this.$('[data-r="anzahl"]').textContent = `${offen.length} offen`;
     // Filter mit Anzahl (offene)
     const zahl = (fn) => offen.filter(fn).length;
-    const filter = [["alle", "Alle", offen.length], ["meine", "Meine", zahl((a) => a.leute.includes(this.ich.mail))],
-      ...this.leute.filter((b) => b.mail !== this.ich.mail).map((b) => [b.mail, b.kuerzel, zahl((a) => a.leute.includes(b.mail))]),
-      ["ohne", "Ohne Zuweisung", zahl((a) => !a.leute.length)]];
+    const filter = [["alle", "Alle", offen.length], ["meine", "Meine", zahl((a) => this.wer(a).includes(this.ich.mail))],
+      ...this.leute.filter((b) => b.mail !== this.ich.mail).map((b) => [b.mail, b.kuerzel, zahl((a) => this.wer(a).includes(b.mail))]),
+      ["ohne", "Ohne Zuweisung", zahl((a) => !a.ansprech)]];
     if (!filter.some((f) => f[0] === this.st.filter)) this.st.filter = "alle";
     this.$(".fpu-filter").innerHTML = filter.map(([k, t, n]) => `<button class="fpu-chip${this.st.filter === k ? " an" : ""}" data-filter="${html(k)}">${html(t)}<b>${n}</b></button>`).join("");
 
@@ -423,11 +438,11 @@
     liste.style.setProperty("--spalten", sp.vorlage);
     const sichtbar = this.sichtbar();
     const zu = new Set(this.st.zu);
-    const teile = [`<div class="fpu-spalten"><span></span><span>Aufgabe</span>${sp.mitFirma ? "<span>Firma</span>" : ""}<span>Ansprechperson</span><span>Bearbeiter</span>${sp.mitDatum ? "<span>Fällig</span>" : ""}${this.mitOrdner ? "<span></span>" : ""}</div>`,
+    const teile = [`<div class="fpu-spalten"><span></span><span>Aufgabe</span>${sp.mitFirma ? "<span>Firma</span>" : ""}<span>Zuweisung</span>${sp.mitDatum ? "<span>Fällig</span>" : ""}${this.mitOrdner ? "<span></span>" : ""}</div>`,
       `<div class="fpu-neu"><span>+</span><input type="text" placeholder="Neue Aufgabe: Namen eintippen, Enter" aria-label="Neue Aufgabe" maxlength="100"></div>`];
     const kopf = (stufe, gr, schluessel, anzahl) => {
       const daten = (gr.art === "faellig" || gr.art === "firma") ? ` data-faellig="${html(gr.faellig == null ? "" : gr.faellig)}" data-hat-faellig="${gr.faellig != null ? 1 : 0}"` +
-        (gr.art === "firma" ? ` data-firma="${html(gr.firma)}"` : "") : "";
+        (gr.art === "firma" ? ` data-firma="${html(gr.firma)}"` : "") : gr.art === "ansprech" ? ` data-zuweisung="${html(gr.zuweisung)}"` : "";
       return `<div class="fpu-g${stufe}${gr.rot ? " rot" : ""}${zu.has(schluessel) ? " fpu-zu" : ""}" data-gk="${html(schluessel)}"${daten}><span class="pfeil">▼</span>${html(gr.titel)} <small>${anzahl}</small></div>`;
     };
     for (const gr of this.gruppen(sichtbar)) {
@@ -486,35 +501,15 @@
     const id = Number(z.dataset.id);
     const akt = ev.target.closest("[data-akt]");
     if (akt && akt.dataset.akt === "erledigt") { ev.stopPropagation(); const a = this.items.get(id); if (a) this.erledigen(id, a.status !== "Erledigt"); return; }
-    if (akt && akt.dataset.akt === "leute") { ev.stopPropagation(); this.leutePop(id, akt); return; }
     this.zeigeDetail(id);
-  };
-
-  App.prototype.leutePop = function (id, anker) {
-    this.schliessePop();
-    const a = this.items.get(id);
-    if (!a) return;
-    const p = document.createElement("div");
-    p.className = "fpu-pop";
-    const alle = this.leute.concat(a.leute.filter((m) => !this.leute.some((b) => b.mail === m)).map((m, i) => this.kuerzel(m, a.namen[a.leute.indexOf(m)])));
-    p.innerHTML = alle.map((b) => `<label><input type="checkbox" value="${html(b.mail)}"${a.leute.includes(b.mail) ? " checked" : ""}> <span class="fpu-k" style="${b.hinter ? `background:${b.hinter};color:${b.schrift}` : ""}">${html(b.kuerzel)}</span> ${html(b.name)}</label>`).join("");
-    p.onchange = () => {
-      const mails = [...p.querySelectorAll("input:checked")].map((i) => i.value);
-      this.setze(id, [{ FieldName: "FPBearbeiter", FieldValue: leuteWert(mails) }]);
-    };
-    this.root.appendChild(p);
-    const r = anker.getBoundingClientRect(), o = this.root.getBoundingClientRect();
-    p.style.top = Math.min(r.bottom - o.top + 4, this.root.clientHeight - p.offsetHeight - 8) + "px";
-    p.style.left = Math.max(8, Math.min(r.left - o.left, this.root.clientWidth - p.offsetWidth - 8)) + "px";
-    this.pop = p;
   };
 
   App.prototype.schliessePop = function () { if (this.pop) { this.pop.remove(); this.pop = null; } };
 
-  /* Zeile auf eine Datums- oder Firmengruppe ziehen = neue Fälligkeit bzw. Firma (nur breite Ansicht) */
+  /* Zeile auf eine Datums-, Firmen- oder Zuweisungsgruppe ziehen = neue Fälligkeit, Firma bzw. Zuweisung (nur breite Ansicht) */
   App.prototype.ziehen = function (liste) {
     let id = null;
-    const ziel = (ev) => { const g = ev.target.closest(".fpu-g1[data-hat-faellig='1'], .fpu-g2[data-hat-faellig='1'], .fpu-g1[data-firma], .fpu-g2[data-firma]"); return g; };
+    const ziel = (ev) => { const g = ev.target.closest(".fpu-g1[data-hat-faellig='1'], .fpu-g2[data-hat-faellig='1'], .fpu-g1[data-firma], .fpu-g2[data-firma], .fpu-g1[data-zuweisung]"); return g; };
     liste.addEventListener("dragstart", (ev) => {
       const z = ev.target.closest(".fpu-zeile");
       if (!z || this.root.classList.contains("schmal")) { ev.preventDefault(); return; }
@@ -536,6 +531,7 @@
         text.push(g.dataset.faellig ? "fällig " + deLang(g.dataset.faellig) : "ohne Fälligkeit");
       }
       if (g.dataset.firma !== undefined && g.dataset.firma !== a.firma) { werte.push({ FieldName: "FPFirma", FieldValue: g.dataset.firma }); text.push("Firma " + (g.dataset.firma || "leer")); }
+      if (g.dataset.zuweisung !== undefined && g.dataset.zuweisung !== a.ansprech) { werte.push(...this.zuweisungWerte(g.dataset.zuweisung)); text.push("Zuweisung " + (g.dataset.zuweisung || "leer")); }
       id = null;
       if (werte.length) this.setze(a.id, werte, `${a.name}: ${text.join(", ")}`);
     });
@@ -571,7 +567,7 @@
   App.prototype.zeigeDetail = async function (id, neuName) {
     this.schliessePop();
     const neu = id === "neu";
-    const a = neu ? { name: neuName || "", firma: "", ansprech: "", leute: this.leute.some((b) => b.mail === this.ich.mail) ? [this.ich.mail] : [], faellig: "", status: "Offen" } : this.items.get(id);
+    const a = neu ? { name: neuName || "", firma: "", ansprech: "", leute: [], faellig: "", status: "Offen" } : this.items.get(id);
     if (!a) return;
     this.wahl = id;
     this.punkte.delete(id);
@@ -580,17 +576,15 @@
     const d = this.$(".fpu-detail");
     // Ansicht „Offen“ zeigt die Mails in der Mappe nach Maildatum, neueste oben
     const ordnerUrl = neu ? "" : `${this.c.host}${this.c.libRel}/Forms/Offen.aspx?id=${encodeURIComponent(a.rel)}`;
-    const leute = this.leute.concat(a.leute.filter((m) => !this.leute.some((b) => b.mail === m)).map((m) => this.kuerzel(m, a.namen && a.namen[a.leute.indexOf(m)])));
     d.innerHTML = `
       <div class="fpu-dkopf"><input data-d="name" value="${html(a.name)}" maxlength="100" aria-label="Name der Aufgabe" placeholder="Name der Aufgabe"><button class="fpu-x" data-d="zu" aria-label="Schließen">×</button></div>
       <div class="fpu-info">${neu ? "Neue Aufgabe" : ""}</div>
       ${neu ? "" : `<div class="fpu-zeilen"><button class="fpu-knopf" data-d="erledigt"></button><a class="fpu-link" data-extern href="${html(ordnerUrl)}" target="_blank" rel="noopener">Mappe in SharePoint ↗</a></div>`}
       <div class="fpu-zwei">
         <div><label>Firma</label><input type="text" data-d="firma" list="${this.id}-firmen" value="${html(a.firma)}" autocomplete="off"></div>
-        <div><label>Ansprechperson</label><input type="text" data-d="ansprech" list="${this.id}-personen" value="${html(a.ansprech)}" maxlength="255" autocomplete="off"></div>
+        <div><label>Zuweisung</label><input type="text" data-d="ansprech" list="${this.id}-personen" value="${html(a.ansprech)}" maxlength="255" autocomplete="off" placeholder="Person oder Kürzel"></div>
       </div>
-      <label>Bearbeiter</label>
-      <div class="fpu-wahl" data-d="leute">${leute.map((b) => `<button type="button" data-mail="${html(b.mail)}" class="${a.leute.includes(b.mail) ? "an" : ""}" style="${b.hinter ? `background:${b.hinter};color:${b.schrift}` : ""}" title="${html(b.name)}">${html(b.kuerzel)}</button>`).join("")}</div>
+      <div class="fpu-wahl" data-d="kz" title="Intern zuweisen">${this.leute.map((b) => `<button type="button" data-kz="${html(b.kuerzel)}" class="${woerter(a.ansprech).includes(b.kuerzel) ? "an" : ""}" style="background:${b.hinter};color:${b.schrift}" title="${html(b.name)}">${html(b.kuerzel)}</button>`).join("")}</div>
       <label>Fälligkeit</label>
       <input type="date" data-d="faellig" value="${a.faellig || ""}">
       <div class="fpu-schnell" data-d="schnell"><button data-t="0">heute</button><button data-t="1">morgen</button><button data-t="3">+3 Tage</button><button data-t="7">+1 Woche</button><button data-t="14">+2 Wochen</button><button data-t="">ohne</button></div>
@@ -605,12 +599,24 @@
     d.querySelectorAll("[data-extern]").forEach((x) => { x.onclick = (ev) => { if (this.o.oeffnen) { ev.preventDefault(); this.o.oeffnen(x.href); } }; });
     if (!neu) this.detailKopf();
 
-    const wahlLeute = () => [...q("leute").querySelectorAll("button.an")].map((b) => b.dataset.mail);
-    q("leute").onclick = (ev) => {
-      const b = ev.target.closest("button[data-mail]");
+    // Zuweisung: Freitext (Person bei der Firma) oder interne Kürzel; speichert Bearbeiter gleich mit
+    const zfeld = q("ansprech");
+    const team = this.leute.map((b) => b.kuerzel);
+    const zSpeichern = () => {
+      const v = zfeld.value.trim();
+      q("kz").querySelectorAll("button").forEach((b) => b.classList.toggle("an", woerter(v).includes(b.dataset.kz)));
+      const x = this.items.get(id);
+      if (!neu && x && v !== x.ansprech) this.setze(id, this.zuweisungWerte(v));
+    };
+    zfeld.onchange = zSpeichern;
+    zfeld.onkeydown = (ev) => { if (ev.key === "Enter") zfeld.blur(); };
+    q("kz").onclick = (ev) => {
+      const b = ev.target.closest("button[data-kz]");
       if (!b) return;
-      b.classList.toggle("an");
-      if (!neu) this.setze(id, [{ FieldName: "FPBearbeiter", FieldValue: leuteWert(wahlLeute()) }]);
+      const w = woerter(zfeld.value), kz = b.dataset.kz;
+      const nurIntern = w.length && w.every((t) => team.includes(t));
+      zfeld.value = w.includes(kz) ? w.filter((t) => t !== kz).join("/") : nurIntern ? w.concat(kz).join("/") : kz;
+      zSpeichern();
     };
     const datum = q("faellig");
     const datumSetzen = () => { if (!neu && datum.value !== (this.items.get(id) || {}).faellig) this.setze(id, [{ FieldName: "FPFaelligkeit", FieldValue: deLang(datum.value) }]); };
@@ -627,7 +633,7 @@
         const knopf = q("anlegen");
         knopf.disabled = true; this.gespeichert("Wird angelegt …");
         try {
-          const nid = await this.anlegen({ name: q("name").value, firma: q("firma").value.trim(), ansprech: q("ansprech").value.trim(), leute: wahlLeute(), faellig: datum.value });
+          const nid = await this.anlegen({ name: q("name").value, firma: q("firma").value.trim(), ansprech: q("ansprech").value.trim(), faellig: datum.value });
           const notiz = q("notiz").value.trim();
           if (notiz) await this.verlaufEintrag(nid, notiz);
           this.toast("Angelegt: " + this.items.get(nid).name);
@@ -650,7 +656,6 @@
     };
     textFeld("name", "FileLeafRef", (x) => x.name);
     textFeld("firma", "FPFirma", (x) => x.firma);
-    textFeld("ansprech", "FPAnsprechperson", (x) => x.ansprech);
     const eintragen = async () => {
       const n = q("notiz"); const t = n.value.trim();
       if (!t) return;

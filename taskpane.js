@@ -9,7 +9,7 @@
 const E = window.FP_EINSTELLUNGEN || {};
 const S = E.sharepoint || {};
 const CONFIG = {
-  version: "0.3",
+  version: "0.4",
   clientId: E.clientId,                             // App-Registrierung „FP-Knopf“ (einstellungen.js)
   tenantId: E.tenantId || "1571141a-75a9-43a3-ad47-8d613cfbb3e6",
   spHost: S.host || "https://ingburghausengmbh.sharepoint.com",
@@ -129,9 +129,6 @@ function ich() {
 
 async function nachAnmeldung() {
   el("login").style.display = "none";
-  const mein = ich();
-  const sel = el("bearbeiter");
-  if (CONFIG.bearbeiter.some((b) => b.mail === mein.mail)) sel.value = mein.mail;
   if (modus === "liste") starteUebersicht();
   try {
     await Promise.all([ladeStammdaten(), ladeMappen()]);
@@ -410,16 +407,25 @@ function firmenQuelle(q) {
     .map((f) => ({ text: f.name, info: f.n ? f.n + " Aufg." : "" }));
 }
 
+/* interne Kürzel in einer Zuweisung („LSC“, „HWE/LSC“) → Mail-Adressen aus einstellungen.js */
+function internMails(text) {
+  const w = String(text || "").split(/[^A-Za-zÄÖÜäöüß]+/);
+  return CONFIG.bearbeiter.filter((b) => w.includes(b.kuerzel)).map((b) => b.mail);
+}
+
 function personenQuelle(q) {
   const passt = (p) => !q || p.toLowerCase().includes(q);
   const firma = el("firma").value.trim().toLowerCase();
   const eigene = Object.entries(personen[firma] || {}).sort((a, b) => b[1] - a[1]).map((x) => x[0]);
   const aus = [];
+  const istTeam = (p) => CONFIG.bearbeiter.some((b) => b.kuerzel === p);
   const abs = absenderName();
   if (abs && passt(abs) && !eigene.includes(abs)) aus.push({ text: abs, info: "Absender" });
-  const e1 = eigene.filter(passt).map((p) => ({ text: p, info: (abs === p ? "Absender · " : "") + personen[firma][p] + "×" }));
+  const team = CONFIG.bearbeiter.filter((b) => passt(b.kuerzel) || passt(b.name));
+  if (team.length) aus.push({ gruppe: "Intern" }, ...team.map((b) => ({ text: b.kuerzel, info: b.name })));
+  const e1 = eigene.filter((p) => passt(p) && !istTeam(p)).map((p) => ({ text: p, info: (abs === p ? "Absender · " : "") + personen[firma][p] + "×" }));
   if (e1.length) aus.push({ gruppe: el("firma").value.trim() || "Firma" }, ...e1);
-  const rest = Object.entries(personenAlle).filter(([p]) => !eigene.includes(p) && p !== abs && passt(p))
+  const rest = Object.entries(personenAlle).filter(([p]) => !eigene.includes(p) && !istTeam(p) && p !== abs && passt(p))
     .sort((a, b) => b[1] - a[1]).slice(0, q ? 40 : 25).map(([p, n]) => ({ text: p, info: n + "×" }));
   if (rest.length) aus.push({ gruppe: "Weitere" }, ...rest);
   return aus;
@@ -499,9 +505,11 @@ async function neueAufgabe() {
   const werte = [{ FieldName: "ContentType", FieldValue: CONFIG.contentType }, { FieldName: "FPStatus", FieldValue: "Offen" }];
   const add = (k, v) => { if (v) werte.push({ FieldName: k, FieldValue: v }); };
   add("FPFirma", el("firma").value.trim());
-  add("FPAnsprechperson", el("ansprech").value.trim());
-  const b = el("bearbeiter").value;
-  if (b) add("FPBearbeiter", JSON.stringify([{ Key: "i:0#.f|membership|" + b }]));
+  // Zuweisung wie die Abrechnungsinfo in Outlook; interne Kürzel darin = Bearbeiter (für „Meine“ und Benachrichtigungen)
+  const zuweisung = el("ansprech").value.trim();
+  add("FPAnsprechperson", zuweisung);
+  const intern = internMails(zuweisung);
+  if (intern.length) add("FPBearbeiter", JSON.stringify(intern.map((m) => ({ Key: "i:0#.f|membership|" + m }))));
   add("FPFaelligkeit", deDatum(el("faellig").value));
   add("FPVerlauf", verlauf.join("\n"));
   await felderSetzen(neu.ListItemAllFields.Id, werte, false);
@@ -548,8 +556,6 @@ async function los() {
 /* ---------- Oberfläche ---------- */
 
 function oberflaeche() {
-  el("bearbeiter").innerHTML = `<option value="">– niemand –</option>` +
-    CONFIG.bearbeiter.map((b) => `<option value="${html(b.mail)}">${html(b.kuerzel + " · " + b.name)}</option>`).join("");
   el("tabNeu").onclick = () => setzeModus("neu");
   el("tabAlt").onclick = () => setzeModus("alt");
   el("tabListe").onclick = () => setzeModus("liste");

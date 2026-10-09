@@ -6,7 +6,7 @@
   <title>FP-Aufgabe</title>
   <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
   <script src="msal-browser.min.js?v=1"></script>
-  <link rel="stylesheet" href="uebersicht.css?v=1" />
+  <link rel="stylesheet" href="uebersicht.css?v=2" />
   <style>
     :root {
       --ink: #242424; --muted: #616161; --line: #d1d1d1;
@@ -98,21 +98,13 @@
         <div class="combo"><input type="text" id="firma" autocomplete="off" placeholder="wählen oder tippen" /><div id="firmaListe" class="droplist"></div></div>
       </div>
       <div>
-        <label for="ansprech">Ansprechperson</label>
-        <div class="combo"><input type="text" id="ansprech" autocomplete="off" maxlength="255" placeholder="wählen oder tippen" /><div id="ansprechListe" class="droplist"></div></div>
+        <label for="ansprech">Zuweisung</label>
+        <div class="combo"><input type="text" id="ansprech" autocomplete="off" maxlength="255" placeholder="Person oder Kürzel" /><div id="ansprechListe" class="droplist"></div></div>
       </div>
     </div>
 
-    <div class="row2">
-      <div>
-        <label for="bearbeiter">Bearbeiter</label>
-        <select id="bearbeiter"></select>
-      </div>
-      <div>
-        <label for="faellig">Fälligkeit</label>
-        <input type="date" id="faellig" />
-      </div>
-    </div>
+    <label for="faellig">Fälligkeit</label>
+    <input type="date" id="faellig" />
     <div class="quick">
       <button data-tage="1">morgen</button>
       <button data-tage="3">+3 Tage</button>
@@ -138,7 +130,7 @@
   </div>
 
   <script src="einstellungen.js?v=3"></script>
-  <script src="uebersicht.js?v=1"></script>
-  <script src="taskpane.js?v=3"></script>
+  <script src="uebersicht.js?v=2"></script>
+  <script src="taskpane.js?v=4"></script>
 </body>
 </html>
