@@ -7,14 +7,15 @@
 "use strict";
 
 const E = window.FP_EINSTELLUNGEN || {};
+const S = E.sharepoint || {};
 const CONFIG = {
-  version: "0.2",
+  version: "0.3",
   clientId: E.clientId,                             // App-Registrierung „FP-Knopf“ (einstellungen.js)
-  tenantId: "1571141a-75a9-43a3-ad47-8d613cfbb3e6",
-  spHost: "https://ingburghausengmbh.sharepoint.com",
-  web: "/sites/2024",
-  listId: "a83c2f28-6212-4181-b8ce-3445d7cd81ab",   // Bibliothek „FP-Aufgaben“
-  libRel: "/sites/2024/FPAufgaben",
+  tenantId: E.tenantId || "1571141a-75a9-43a3-ad47-8d613cfbb3e6",
+  spHost: S.host || "https://ingburghausengmbh.sharepoint.com",
+  web: S.web || "/sites/2024",
+  listId: S.listId || "a83c2f28-6212-4181-b8ce-3445d7cd81ab",   // Bibliothek „FP-Aufgaben“
+  libRel: S.libRel || "/sites/2024/FPAufgaben",
   contentType: "FP-Aufgabe",
   bearbeiter: E.bearbeiter || [],                   // einstellungen.js
   ohneFirma: ["ing"],                               // eigene Firma nicht automatisch vorschlagen
@@ -28,8 +29,10 @@ let personen = {};        // Firma (klein) -> {Person: Anzahl}
 let personenAlle = {};    // Person -> Anzahl
 let mappen = [];          // offene Mappen [{id, name, rel, firma, faellig}]
 let gewaehlt = null;      // gewählte Mappe im Modus „Zu bestehender“
-let modus = "neu";
+let modus = "neu";        // „neu“, „alt“ oder „liste“ (Übersicht aller Aufgaben)
 let laeuft = false;
+let uebersicht = null;    // FPUebersicht im Reiter „Übersicht“ (uebersicht.js)
+let mailPruefung = 0;     // verwirft veraltete Antworten beim schnellen Mailwechsel
 const el = (id) => document.getElementById(id);
 const mailItem = () => (Office.context && Office.context.mailbox) ? Office.context.mailbox.item : null;
 const warte = (ms) => new Promise((s) => setTimeout(s, ms));
@@ -67,12 +70,14 @@ Office.onReady(async () => {
     el("version").textContent = "FP-Knopf v" + CONFIG.version;
     if (inOutlook) {
       ausMail();
+      // angeheftet: folgt der gewählten Mail; ohne gewählte Mail (oder mehrere) zeigt der Bereich die Übersicht
       Office.context.mailbox.addHandlerAsync(Office.EventType.ItemChanged, () => { status(""); ausMail(); });
       if (!Office.context.requirements.isSetSupported("Mailbox", "1.14")) {
         status("Dieses Outlook kann Mails nicht als Datei weitergeben (Mailbox 1.14 fehlt). Bitte Outlook aktualisieren.", "err");
       }
     } else {
       el("mail").textContent = "Browser-Test: keine Mail geöffnet";
+      setzeModus("liste");
     }
 
     const token = await stillesToken(8000);
@@ -127,12 +132,32 @@ async function nachAnmeldung() {
   const mein = ich();
   const sel = el("bearbeiter");
   if (CONFIG.bearbeiter.some((b) => b.mail === mein.mail)) sel.value = mein.mail;
+  if (modus === "liste") starteUebersicht();
   try {
     await Promise.all([ladeStammdaten(), ladeMappen()]);
   } catch (e) {
     status("Laden fehlgeschlagen: " + msg(e), "err");
   }
   pruefeKnopf();
+  schonAbgelegt();
+}
+
+/* ---------- Übersicht (Reiter) ---------- */
+
+function starteUebersicht() {
+  if (uebersicht || !konto() || !window.FPUebersicht) return;
+  uebersicht = window.FPUebersicht.start(el("liste-bereich"), {
+    sp, schmal: true, speicher: "outlook", ich: ich(), bearbeiter: CONFIG.bearbeiter, oeffnen: browserFenster,
+    cfg: { host: CONFIG.spHost, web: CONFIG.web, listId: CONFIG.listId, libRel: CONFIG.libRel },
+  });
+}
+
+/* Links aus dem Seitenbereich im normalen Browser öffnen */
+function browserFenster(url) {
+  try {
+    if (Office.context.ui && Office.context.ui.openBrowserWindow) { Office.context.ui.openBrowserWindow(url); return; }
+  } catch (e) { }
+  window.open(url, "_blank", "noopener");
 }
 
 /* ---------- SharePoint ---------- */
@@ -233,7 +258,13 @@ async function felderSetzen(id, werte, neueVersion) {
 function ausMail() {
   const it = mailItem();
   gewaehlt = null;
-  if (!it) { el("mail").textContent = "Keine Mail ausgewählt"; pruefeKnopf(); return; }
+  if (!it) {
+    el("mail").textContent = "Keine Mail ausgewählt";
+    el("schon").style.display = "none";
+    if (modus !== "liste") setzeModus("liste");
+    pruefeKnopf();
+    return;
+  }
   const von = (it.from && (it.from.displayName || it.from.emailAddress)) || "";
   el("mail").textContent = (it.subject || "(ohne Betreff)") + (von ? " · " + von : "");
   el("mail").title = el("mail").textContent;
@@ -244,6 +275,57 @@ function ausMail() {
   el("suche").value = "";
   zeigeMappen();
   pruefeKnopf();
+  schonAbgelegt();
+}
+
+/* Hinweis oben: Mail ist gelb markiert (Aufgabe gibt es schon) oder liegt schon in einer Mappe */
+async function schonAbgelegt() {
+  const nr = ++mailPruefung;
+  const box = el("schon");
+  box.style.display = "none";
+  const it = mailItem();
+  if (!it || !konto()) return;
+  const teile = [];
+  const kat = await kategorien();
+  if (E.gelbKategorie && kat.includes(E.gelbKategorie)) teile.push(`Gelb markiert („${html(E.gelbKategorie)}“): Zu dieser Mail gibt es schon eine Aufgabe.`);
+  try {
+    const basis = dateiname().name.replace(/\.eml$/i, "");
+    const r = await sp(liste() + `/items?$select=FileLeafRef,FileDirRef&$top=5&$filter=FSObjType eq 0 and startswith(FileLeafRef,'${encodeURIComponent(basis.replace(/'/g, "''"))}')`);
+    const ordner = [...new Set(((r && r.value) || []).map((x) => x.FileDirRef))].filter((d) => d.startsWith(CONFIG.libRel + "/") && !d.includes("/_Import"));
+    for (const d of ordner) {
+      const name = d.slice(CONFIG.libRel.length + 1).split("/")[0];
+      teile.push(`Diese Mail liegt schon in <a data-mappe="${html(name)}">${html(name)}</a>.`);
+    }
+  } catch (e) { console.warn("[FP] Prüfung abgelegt:", msg(e)); }
+  if (nr !== mailPruefung || !teile.length) return;
+  box.innerHTML = teile.join("<br>");
+  box.style.display = "block";
+  box.querySelectorAll("a[data-mappe]").forEach((a) => {
+    a.onclick = () => {
+      const m = mappen.find((x) => x.name === a.dataset.mappe);
+      setzeModus("alt");
+      if (m) { gewaehlt = m; el("suche").value = m.name; zeigeMappen(); pruefeKnopf(); }
+    };
+  });
+}
+
+function kategorien() {
+  return new Promise((ok) => {
+    const it = mailItem();
+    if (!it || !it.categories || typeof it.categories.getAsync !== "function") { ok([]); return; }
+    try { it.categories.getAsync((r) => ok(r.status === Office.AsyncResultStatus.Succeeded ? (r.value || []).map((c) => c.displayName) : [])); }
+    catch (e) { ok([]); }
+  });
+}
+
+/* Gelbe Kategorie wie bisher von Hand: „zu dieser Mail gibt es eine Aufgabe“ (einstellungen.js: gelbMarkieren) */
+function gelbMarkieren() {
+  return new Promise((ok) => {
+    const it = mailItem();
+    if (!E.gelbMarkieren || !E.gelbKategorie || !it || !it.categories || typeof it.categories.addAsync !== "function") { ok(false); return; }
+    try { it.categories.addAsync([E.gelbKategorie], (r) => ok(r.status === Office.AsyncResultStatus.Succeeded)); }
+    catch (e) { ok(false); }
+  });
 }
 
 /* Betreff ohne AW/WG/RE/FW und ohne vorangestellte Datumskürzel („261008 WG: 261007 …“) */
@@ -448,10 +530,14 @@ async function los() {
   try {
     const r = modus === "neu" ? await neueAufgabe() : await zuBestehender();
     const link = `${CONFIG.spHost}${CONFIG.libRel}/Forms/Offen.aspx?id=${encodeURIComponent(r.rel)}`;
-    const zur = r.mail.schonDa ? "Die Mail lag schon in der Mappe." : "Mail abgelegt.";
+    const gelb = await gelbMarkieren();
+    const zur = (r.mail.schonDa ? "Die Mail lag schon in der Mappe." : "Mail abgelegt.") + (gelb ? " Mail gelb markiert." : "");
     el("status").className = "ok";
     el("status").innerHTML = `${modus === "neu" ? "Aufgabe angelegt" : "Zur Aufgabe hinzugefügt"}: <a href="${link}" target="_blank" rel="noopener">${html(r.name)}</a>\n${zur}`;
+    el("status").querySelector("a").onclick = (ev) => { ev.preventDefault(); browserFenster(link); };
     if (modus === "neu") ladeMappen().catch(() => {});
+    if (uebersicht) uebersicht.aktualisieren();
+    schonAbgelegt();
   } catch (e) {
     status(msg(e), "err");
   } finally {
@@ -466,6 +552,8 @@ function oberflaeche() {
     CONFIG.bearbeiter.map((b) => `<option value="${html(b.mail)}">${html(b.kuerzel + " · " + b.name)}</option>`).join("");
   el("tabNeu").onclick = () => setzeModus("neu");
   el("tabAlt").onclick = () => setzeModus("alt");
+  el("tabListe").onclick = () => setzeModus("liste");
+  el("gross").onclick = () => browserFenster(new URL("uebersicht.html", location.href).href);
   el("loginBtn").onclick = async () => {
     try { await anmelden(); await nachAnmeldung(); status(""); } catch (e) { status("Anmeldung fehlgeschlagen: " + msg(e), "err"); }
   };
@@ -487,9 +575,11 @@ function setzeModus(m) {
   document.body.className = m;
   el("tabNeu").classList.toggle("on", m === "neu");
   el("tabAlt").classList.toggle("on", m === "alt");
+  el("tabListe").classList.toggle("on", m === "liste");
   el("los").textContent = m === "neu" ? "Aufgabe anlegen" : "Mail zur Aufgabe legen";
   status("");
   pruefeKnopf();
+  if (m === "liste") starteUebersicht();
 }
 
 /* Vorschläge: Mappen, deren Name Wörter aus dem Betreff enthält, zuerst */

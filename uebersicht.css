@@ -1,0 +1,134 @@
+/* FP-Übersicht – gilt nur innerhalb von .fpu (auch im Outlook-Seitenbereich neben dem FP-Knopf) */
+.fpu {
+  --ink: #242424; --muted: #616161; --faint: #8a8886; --line: #e1dfdd; --line2: #d1d1d1;
+  --accent: #0b5394; --accent-hov: #073a69; --soft: #f3f6fa; --grp: #f5f5f5;
+  --red: #c50f1f; --ok: #107c10; --neu: #e8f1fb;
+  font-family: "Segoe UI", system-ui, sans-serif; font-size: 13.5px; color: var(--ink); background: #fff;
+  position: relative; display: flex; flex-direction: column; min-height: 0; height: 100%;
+}
+.fpu * { box-sizing: border-box; }
+.fpu button { font: inherit; color: inherit; }
+.fpu input, .fpu select, .fpu textarea { font: inherit; color: var(--ink); }
+/* gegen allgemeine Regeln der umgebenden Seite (Outlook-Seitenbereich) */
+.fpu label { margin: 0; font-size: inherit; font-weight: 400; color: inherit; }
+.fpu select.fpu-gruppe { width: auto; }
+.fpu .fpu-neu input { width: 100%; border: none; border-radius: 0; background: transparent; padding: 5px 0; outline: none; }
+
+/* Kopf: Titel, Suche, Filter, Gruppierung, Live-Anzeige */
+.fpu-kopf { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 8px 12px; border-bottom: 1px solid var(--line); background: #fff; }
+.fpu-titel { font-weight: 600; font-size: 15px; margin-right: 4px; white-space: nowrap; }
+.fpu-titel small { font-weight: 400; color: var(--muted); font-size: 12.5px; margin-left: 4px; }
+.fpu-suche { flex: 1 1 160px; min-width: 120px; max-width: 280px; padding: 5px 9px; border: 1px solid var(--line2); border-radius: 4px; }
+.fpu-filter { display: flex; gap: 4px; flex-wrap: wrap; }
+.fpu-chip { padding: 3px 9px; border: 1px solid var(--line2); border-radius: 12px; background: #fff; cursor: pointer; font-size: 12.5px; white-space: nowrap; }
+.fpu-chip:hover { background: var(--soft); }
+.fpu-chip.an { background: var(--accent); border-color: var(--accent); color: #fff; }
+.fpu-chip b { font-weight: 600; margin-left: 3px; }
+.fpu-gruppe { padding: 4px 6px; border: 1px solid var(--line2); border-radius: 4px; background: #fff; font-size: 12.5px; }
+.fpu-live { font-size: 11.5px; color: var(--faint); white-space: nowrap; margin-left: auto; cursor: pointer; }
+.fpu-live.fehler { color: var(--red); }
+.fpu-live i { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--ok); margin-right: 5px; vertical-align: 1px; }
+.fpu-live.fehler i { background: var(--red); }
+.fpu-live.laedt i { background: #c19c00; }
+.fpu .fpu-check { display: flex; align-items: center; gap: 4px; font-size: 12.5px; color: var(--muted); white-space: nowrap; cursor: pointer; }
+
+/* Liste */
+.fpu-haupt { flex: 1; display: flex; min-height: 0; }
+.fpu-liste { flex: 1; overflow-y: auto; min-width: 0; }
+.fpu-neu { display: grid; grid-template-columns: 30px minmax(0, 1fr); align-items: center; padding: 4px 12px; border-bottom: 1px solid var(--line); background: #fafafa; }
+.fpu-neu input { border: none; background: transparent; padding: 5px 0; outline: none; }
+.fpu-neu span { color: var(--faint); font-size: 16px; text-align: center; }
+.fpu-zeile, .fpu-spalten { display: grid; grid-template-columns: var(--spalten); align-items: center; padding: 0 12px; column-gap: 10px; }
+.fpu-spalten { font-size: 11.5px; color: var(--muted); border-bottom: 1px solid var(--line); padding-top: 4px; padding-bottom: 4px; background: #fff; position: sticky; top: 0; z-index: 2; }
+.fpu-zeile { min-height: 32px; border-bottom: 1px solid #f0f0f0; cursor: pointer; }
+.fpu-zeile:hover { background: var(--soft); }
+.fpu-zeile.gewaehlt { background: #dce9f6; }
+.fpu-zeile.neu { animation: fpu-blink 8s ease-out; }
+@keyframes fpu-blink { 0%, 60% { background: var(--neu); } 100% { background: transparent; } }
+.fpu-zeile .n { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fpu-zeile .p, .fpu-zeile .f, .fpu-zeile .d { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--ink); }
+.fpu-zeile .d { font-size: 12.5px; }
+.fpu-zeile .m { font-size: 11.5px; color: var(--faint); text-align: right; white-space: nowrap; }
+.fpu-zeile.ueber .n, .fpu-zeile.ueber .p, .fpu-zeile.ueber .d { color: var(--red); }
+.fpu-zeile.erledigt .n, .fpu-zeile.erledigt .p, .fpu-zeile.erledigt .f, .fpu-zeile.erledigt .d { text-decoration: line-through; color: var(--faint); }
+.fpu-zeile .punkt { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); margin-right: 6px; vertical-align: 1px; }
+.fpu-box { width: 16px; height: 16px; border: 1.5px solid #8a8886; border-radius: 3px; background: #fff; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; padding: 0; }
+.fpu-box:hover { border-color: var(--ok); }
+.fpu-box.an { background: var(--ok); border-color: var(--ok); }
+.fpu-box.an::after { content: ""; width: 4px; height: 8px; border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg) translate(-1px, -1px); }
+.fpu-leute { display: flex; flex-wrap: wrap; gap: 3px; min-height: 20px; align-items: center; }
+.fpu-k { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 11.5px; font-weight: 600; line-height: 16px; background: #edebe9; color: #323130; }
+.fpu-ohne { font-size: 11.5px; color: var(--faint); }
+.fpu-g1, .fpu-g2 { display: flex; align-items: center; gap: 6px; padding: 5px 12px; background: var(--grp); border-bottom: 1px solid var(--line); cursor: pointer; user-select: none; }
+.fpu-g1 { font-weight: 600; position: sticky; top: 25px; z-index: 1; }
+.fpu-g2 { padding-left: 30px; color: var(--muted); background: #fafafa; }
+.fpu-g1.rot { color: var(--red); }
+.fpu-g1 small, .fpu-g2 small { font-weight: 400; color: var(--muted); }
+.fpu-g1 .pfeil, .fpu-g2 .pfeil { width: 12px; display: inline-block; transition: transform .15s; font-size: 10px; color: var(--muted); }
+.fpu-zu > .pfeil { transform: rotate(-90deg); }
+.fpu-ziel { outline: 2px dashed var(--accent); outline-offset: -2px; background: var(--neu) !important; }
+.fpu-leer { padding: 30px 16px; color: var(--muted); text-align: center; }
+
+/* Detailbereich */
+.fpu-detail { width: 380px; flex: none; border-left: 1px solid var(--line); overflow-y: auto; background: #fff; display: none; padding: 12px 14px 20px; }
+.fpu.mit-detail .fpu-detail { display: block; }
+.fpu-detail h2 { font-size: 15px; margin: 0; }
+.fpu-dkopf { display: flex; align-items: flex-start; gap: 8px; }
+.fpu-dkopf input { flex: 1; font-size: 15px; font-weight: 600; border: 1px solid transparent; border-radius: 4px; padding: 4px 6px; margin-left: -6px; }
+.fpu-dkopf input:hover { border-color: var(--line2); }
+.fpu-dkopf input:focus { border-color: var(--accent); outline: none; }
+.fpu-x { border: none; background: none; font-size: 20px; line-height: 1; cursor: pointer; color: var(--muted); padding: 2px 6px; }
+.fpu-x:hover { color: var(--ink); }
+.fpu-info { font-size: 12px; color: var(--muted); margin: 2px 0 8px; }
+.fpu .fpu-detail label { display: block; font-size: 12px; font-weight: 600; color: var(--muted); margin: 12px 0 4px; }
+.fpu-detail input[type=text], .fpu-detail input[type=date], .fpu-detail textarea { width: 100%; padding: 6px 8px; border: 1px solid var(--line2); border-radius: 4px; background: #fff; }
+.fpu-detail input:focus, .fpu-detail textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.fpu-zwei { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.fpu-zwei > div { min-width: 0; }
+.fpu-wahl { display: flex; flex-wrap: wrap; gap: 6px; }
+.fpu-wahl button { padding: 3px 10px; border: 1px solid var(--line2); border-radius: 4px; background: #fff; cursor: pointer; font-size: 12.5px; font-weight: 600; opacity: .55; }
+.fpu-wahl button.an { opacity: 1; border-color: currentColor; }
+.fpu-schnell { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+.fpu-schnell button { padding: 2px 8px; border: 1px solid var(--line2); border-radius: 12px; background: #fff; cursor: pointer; font-size: 12px; }
+.fpu-schnell button:hover { background: var(--soft); }
+.fpu-knopf { padding: 6px 12px; border: 1px solid var(--line2); border-radius: 4px; background: #fff; cursor: pointer; }
+.fpu-knopf:hover { background: var(--soft); }
+.fpu-knopf.haupt { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+.fpu-knopf.haupt:hover { background: var(--accent-hov); }
+.fpu-knopf:disabled { opacity: .5; cursor: default; }
+.fpu-zeilen { display: flex; gap: 8px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
+.fpu-verlauf { white-space: pre-wrap; font-size: 12.5px; line-height: 1.45; background: #fafafa; border: 1px solid var(--line); border-radius: 4px; padding: 8px; margin-top: 6px; max-height: 260px; overflow-y: auto; }
+.fpu-mails { margin-top: 4px; border: 1px solid var(--line); border-radius: 4px; max-height: 240px; overflow-y: auto; }
+.fpu-mails a { display: block; padding: 5px 8px; border-bottom: 1px solid #f0f0f0; color: var(--ink); text-decoration: none; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fpu-mails a:hover { background: var(--soft); }
+.fpu-mails a small { color: var(--muted); margin-right: 6px; }
+.fpu-mails .leer { padding: 8px; color: var(--faint); font-size: 12.5px; }
+.fpu-link { color: var(--accent); font-weight: 600; text-decoration: none; cursor: pointer; font-size: 12.5px; }
+.fpu-gespeichert { font-size: 12px; color: var(--ok); min-height: 16px; margin-top: 8px; }
+.fpu-gespeichert.fehler { color: var(--red); }
+
+/* Hinweise unten */
+.fpu-toast { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); background: #323130; color: #fff; padding: 8px 12px; border-radius: 6px; font-size: 13px; display: none; align-items: center; gap: 12px; z-index: 20; max-width: calc(100% - 24px); box-shadow: 0 4px 14px rgba(0,0,0,.25); }
+.fpu-toast.da { display: flex; }
+.fpu-toast button { background: none; border: none; color: #9cc3ef; font-weight: 600; cursor: pointer; padding: 0; }
+.fpu-pop { position: absolute; z-index: 30; background: #fff; border: 1px solid var(--line2); border-radius: 6px; box-shadow: 0 6px 18px rgba(0,0,0,.18); padding: 6px; display: flex; flex-direction: column; gap: 2px; min-width: 170px; }
+.fpu .fpu-pop label { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 4px; cursor: pointer; font-size: 13px; }
+.fpu-pop label:hover { background: var(--soft); }
+
+/* schmal: Outlook-Seitenbereich, Handy */
+.fpu.schmal .fpu-kopf { padding: 8px 10px; }
+.fpu.schmal .fpu-suche { max-width: none; flex-basis: 100%; order: 5; }
+.fpu.schmal .fpu-filter { order: 6; flex-basis: 100%; }
+.fpu.schmal .fpu-live { margin-left: auto; }
+.fpu.schmal .fpu-spalten { display: none; }
+.fpu.schmal .fpu-g1 { top: 0; }
+.fpu.schmal .fpu-zeile { grid-template-columns: 22px minmax(0, 1fr) auto !important; padding: 5px 10px; align-items: start; }
+.fpu.schmal .fpu-zeile .box { padding-top: 2px; }
+.fpu.schmal .fpu-zeile .n { white-space: normal; line-height: 1.3; }
+.fpu.schmal .fpu-zeile .unter { font-size: 12px; color: var(--muted); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fpu.schmal .fpu-zeile.ueber .unter { color: var(--red); }
+.fpu.schmal .fpu-g2 { padding-left: 22px; }
+.fpu.schmal .fpu-detail { position: absolute; inset: 0; width: auto; border-left: none; z-index: 10; }
+.fpu .unter { display: none; }
+.fpu.schmal .unter { display: block; }
+.fpu.schmal .breit { display: none; }

@@ -4,11 +4,11 @@
            xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0"
            xsi:type="MailApp">
   <Id>c0a108aa-1582-4ca9-bf6a-220db1983e6e</Id>
-  <Version>1.0.0.0</Version>
+  <Version>1.1.0.0</Version>
   <ProviderName>ing Burghausen GmbH</ProviderName>
   <DefaultLocale>de-DE</DefaultLocale>
   <DisplayName DefaultValue="FP-Aufgabe" />
-  <Description DefaultValue="Legt aus der geöffneten E-Mail eine FP-Aufgabe in SharePoint an oder legt die Mail in eine bestehende Aufgabe." />
+  <Description DefaultValue="Legt aus der geöffneten E-Mail eine FP-Aufgabe in SharePoint an oder legt die Mail in eine bestehende Aufgabe, und zeigt alle FP-Aufgaben im Überblick." />
   <IconUrl DefaultValue="https://ingmoedl.github.io/fp-knopf/assets/icon-64.png" />
   <HighResolutionIconUrl DefaultValue="https://ingmoedl.github.io/fp-knopf/assets/icon-128.png" />
   <SupportUrl DefaultValue="https://www.ing-burghausen.de" />
@@ -31,7 +31,8 @@
       </DesktopSettings>
     </Form>
   </FormSettings>
-  <Permissions>ReadItem</Permissions>
+  <!-- ReadWriteItem: nur für die gelbe Kategorie „Aufgabe erstellt“ (einstellungen.js: gelbMarkieren) -->
+  <Permissions>ReadWriteItem</Permissions>
   <Rule xsi:type="RuleCollection" Mode="Or">
     <Rule xsi:type="ItemIs" ItemType="Message" FormType="Read" />
   </Rule>
@@ -85,13 +86,14 @@
         <bt:String id="Btn.Label" DefaultValue="→ FP-Aufgabe" />
       </bt:ShortStrings>
       <bt:LongStrings>
-        <bt:String id="Btn.Tip" DefaultValue="Legt aus dieser E-Mail eine FP-Aufgabe in SharePoint an oder legt sie in eine bestehende." />
+        <bt:String id="Btn.Tip" DefaultValue="Legt aus dieser E-Mail eine FP-Aufgabe in SharePoint an oder legt sie in eine bestehende. Reiter „Übersicht“: alle FP-Aufgaben." />
       </bt:LongStrings>
     </Resources>
 
     <VersionOverrides xmlns="http://schemas.microsoft.com/office/mailappversionoverrides/1.1" xsi:type="VersionOverridesV1_1">
+      <!-- 1.13: Bereich lässt sich auch ohne ausgewählte Mail öffnen (klassisches Outlook für Windows) -->
       <Requirements>
-        <bt:Sets DefaultMinVersion="1.5">
+        <bt:Sets DefaultMinVersion="1.13">
           <bt:Set Name="Mailbox" />
         </bt:Sets>
       </Requirements>
@@ -118,6 +120,7 @@
                     <Action xsi:type="ShowTaskpane">
                       <SourceLocation resid="Taskpane.Url" />
                       <SupportsPinning>true</SupportsPinning>
+                      <SupportsNoItemContext>true</SupportsNoItemContext>
                     </Action>
                   </Control>
                 </Group>
@@ -140,7 +143,7 @@
           <bt:String id="Btn.Label" DefaultValue="→ FP-Aufgabe" />
         </bt:ShortStrings>
         <bt:LongStrings>
-          <bt:String id="Btn.Tip" DefaultValue="Legt aus dieser E-Mail eine FP-Aufgabe in SharePoint an oder legt sie in eine bestehende." />
+          <bt:String id="Btn.Tip" DefaultValue="Legt aus dieser E-Mail eine FP-Aufgabe in SharePoint an oder legt sie in eine bestehende. Reiter „Übersicht“: alle FP-Aufgaben." />
         </bt:LongStrings>
       </Resources>
     </VersionOverrides>

@@ -6,6 +6,7 @@
   <title>FP-Aufgabe</title>
   <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
   <script src="msal-browser.min.js?v=1"></script>
+  <link rel="stylesheet" href="uebersicht.css?v=1" />
   <style>
     :root {
       --ink: #242424; --muted: #616161; --line: #d1d1d1;
@@ -57,11 +58,21 @@
     #mail { font-size: 12px; color: var(--muted); background: var(--soft); border-radius: 4px; padding: 6px 9px; margin-bottom: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .nur-neu, .nur-alt { display: none; }
     body.neu .nur-neu, body.alt .nur-alt { display: block; }
+    #schon { display: none; font-size: 12.5px; background: #fff8e1; border: 1px solid #f0d58c; border-radius: 4px; padding: 6px 9px; margin-bottom: 10px; line-height: 1.4; }
+    #schon a { color: var(--accent); font-weight: 600; cursor: pointer; }
+    /* Reiter „Übersicht“: alle Aufgaben, schmale Darstellung */
+    #liste-bereich { display: none; margin: 10px -16px -14px; height: calc(100vh - 92px); min-height: 300px; border-top: 1px solid var(--line); }
+    body.liste #liste-bereich { display: block; }
+    body.liste .formular, body.liste #mail, body.liste #schon { display: none !important; }
+    .gross { float: right; font-size: 12px; color: var(--accent); font-weight: 600; cursor: pointer; text-decoration: none; margin-top: 2px; }
+    body:not(.liste) .gross { display: none; }
   </style>
 </head>
 <body class="neu">
+  <a class="gross" id="gross" title="Übersicht in eigenem Fenster öffnen">Großansicht ↗</a>
   <h1>FP-Aufgabe</h1>
   <div id="mail">Mail wird gelesen …</div>
+  <div id="schon"></div>
 
   <div id="login">
     <button id="loginBtn" class="primary">Bei Microsoft anmelden</button>
@@ -71,8 +82,12 @@
   <div class="tabs">
     <button id="tabNeu" class="on">Neue Aufgabe</button>
     <button id="tabAlt">Zu bestehender</button>
+    <button id="tabListe">Übersicht</button>
   </div>
 
+  <div id="liste-bereich"></div>
+
+  <div class="formular">
   <div class="nur-neu">
     <label for="name">Name der Aufgabe</label>
     <input type="text" id="name" autocomplete="off" maxlength="100" />
@@ -120,8 +135,10 @@
 
   <div id="status"></div>
   <div id="version" class="hint" style="margin-top: 18px; text-align: right;"></div>
+  </div>
 
-  <script src="einstellungen.js?v=2"></script>
-  <script src="taskpane.js?v=2"></script>
+  <script src="einstellungen.js?v=3"></script>
+  <script src="uebersicht.js?v=1"></script>
+  <script src="taskpane.js?v=3"></script>
 </body>
 </html>
