@@ -1,0 +1,49 @@
+/* FP-Knopf – Reiter „Vorschlag“. Nutzt die Farben aus taskpane.html (--ink, --muted, --line, --accent, --soft). */
+/* Vier Reiter in einem schmalen Bereich: etwas kleinere Schrift, Umbruch erlaubt */
+.tabs button { font-size: 12.5px; padding: 7px 2px; line-height: 1.2; }
+#vorschlag-bereich { display: none; margin-top: 12px; }
+body.vor #vorschlag-bereich { display: block; }
+body.vor .formular, body.vor #schon { display: none !important; }
+
+.vs-label { font-size: 12px; font-weight: 600; color: var(--muted); margin: 12px 0 5px; }
+.vs-ampel { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; flex: none; }
+.vs-gruen { background: #107c10; }
+.vs-gelb { background: #c19c00; }
+.vs-rot { background: #b10e1c; }
+
+.vs-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.vs-chip { display: inline-flex; align-items: center; max-width: 100%; padding: 3px 9px; border: 1px solid var(--line); border-radius: 12px; background: #fff; font: inherit; font-size: 12.5px; color: var(--ink); cursor: pointer; text-align: left; }
+.vs-chip:hover { background: var(--soft); }
+.vs-gruende { font-size: 11.5px; color: var(--muted); min-height: 0; margin-top: 4px; }
+.vs-zusammenfassung { font-size: 12.5px; line-height: 1.45; margin-top: 8px; padding: 7px 9px; background: var(--soft); border-radius: 4px; }
+
+.vs-haupt { margin-top: 12px; padding: 10px 11px; border: 2px solid var(--accent); border-radius: 6px; }
+.vs-haupt .vs-label { margin-top: 0; }
+.vs-zeile { padding: 9px 0; border-top: 1px solid #eee; }
+.vs-titel { font-size: 14px; font-weight: 600; line-height: 1.35; overflow-wrap: anywhere; }
+.vs-zusatz { font-size: 12.5px; margin-top: 2px; overflow-wrap: anywhere; }
+.vs-grund { font-size: 11.5px; color: var(--muted); margin-top: 4px; line-height: 1.4; }
+.vs-bedienung { margin-top: 8px; }
+.vs-knopf { padding: 6px 12px; border: 1px solid var(--accent); border-radius: 4px; background: #fff; color: var(--accent); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.vs-haupt .vs-knopf { background: var(--accent); color: #fff; width: 100%; padding: 8px; }
+.vs-knopf:hover { background: var(--soft); }
+.vs-haupt .vs-knopf:hover { background: var(--accent-hov); }
+.vs-knopf:disabled { opacity: 0.6; cursor: default; }
+.vs-wahlzeile { display: flex; gap: 6px; }
+.vs-wahl { flex: 1; min-width: 0; padding: 5px 6px; border: 1px solid var(--line); border-radius: 4px; font: inherit; font-size: 12.5px; background: #fff; }
+.vs-haupt .vs-wahlzeile .vs-knopf { width: auto; }
+
+.vs-entwurf { margin-top: 6px; font-size: 12px; }
+.vs-entwurf summary { cursor: pointer; color: var(--accent); }
+.vs-entwurf pre { margin: 6px 0 0; padding: 7px 9px; background: var(--soft); border-radius: 4px; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; line-height: 1.45; }
+
+.vs-meldung { font-size: 12px; line-height: 1.4; padding: 6px 9px; border-radius: 4px; background: var(--soft); color: var(--muted); margin-bottom: 6px; }
+.vs-meldung.vs-hinweis { background: #fff8e1; border: 1px solid #f0d58c; color: var(--ink); }
+.vs-meldung.vs-fehler { background: #fde7e9; border: 1px solid #f1bbbf; color: var(--err); }
+.vs-ergebnis { font-size: 12px; margin-top: 6px; }
+.vs-ergebnis.vs-ok { color: var(--ok); }
+.vs-ergebnis.vs-fehler { color: var(--err); }
+.vs-offen { font-size: 11.5px; color: var(--muted); margin-top: 10px; }
+
+.vs-fuss { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 12px; padding-top: 8px; border-top: 1px solid var(--line); font-size: 11.5px; color: var(--muted); }
+.vs-link { border: none; background: none; padding: 0; font: inherit; color: var(--accent); cursor: pointer; }
