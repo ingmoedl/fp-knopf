@@ -239,6 +239,10 @@
     }
     const bereich = gebaeude.length ? null : bereichFinden(mail.betreff, reg);
     const partei = parteiFinden(mail.von, reg);
+    // Absender aus dem eigenen Haus (gleiche Domain wie das angemeldete Postfach): Bei einer Weiterleitung
+    // sagt der Absender nichts über die Partei, die Ablage ist dann nur ein Anhalt.
+    const vonDomain = String(mail.von || '').toLowerCase().split('@')[1] || '';
+    const intern = !!mail.eigeneDomain && vonDomain === String(mail.eigeneDomain).toLowerCase();
     const pv = pruefFrist(mail.von, mail.betreff, reg);
     const ext = (reg.ablage && reg.ablage.ext) || 'der Ablage für Unterlagen';
     const vorschlaege = [];
@@ -248,7 +252,9 @@
     }
     if (aufgabe) vorschlaege.push({ art: 'aufgabe_zuordnen', mappe: aufgabe.mappe, ampel: aufgabe.ampel, grund: aufgabe.grund });
     if (partei.ordner_kom) {
-      vorschlaege.push({ art: 'ablegen', ziel_kom: partei.ordner_kom, ampel: 'gruen', grund: 'Ablage folgt dem Absender.' });
+      vorschlaege.push(intern
+        ? { art: 'ablegen', ziel_kom: partei.ordner_kom, ampel: 'gelb', grund: 'Absender ist das eigene Haus. Bei einer Weiterleitung kann die Partei im Verlauf die richtige sein.' }
+        : { art: 'ablegen', ziel_kom: partei.ordner_kom, ampel: 'gruen', grund: 'Ablage folgt dem Absender.' });
     } else {
       vorschlaege.push({ art: 'ablegen', ziel_kom: '', ampel: 'rot', grund: 'Kein Ablageordner bekannt, bitte wählen.' });
     }
@@ -266,7 +272,7 @@
       pruefplattform: pv,
       vorschlaege,
       // Was Regeln nicht können, sagt der Reiter offen: keine Aussage zu Antwort, Zuständigkeit oder Dringlichkeit.
-      offen: ['Ob eine Antwort nötig ist', 'Wer zuständig ist', 'Thema und Zusammenfassung'],
+      offen: ['ob eine Antwort nötig ist', 'wer zuständig ist', 'Thema und Zusammenfassung'],
     };
   }
 

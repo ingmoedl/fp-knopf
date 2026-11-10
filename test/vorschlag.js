@@ -141,7 +141,7 @@
   }
 
   function erzeuge(container, dienste) {
-    let lauf = 0, reg = null, letzteMail = null;
+    let lauf = 0, reg = null, letzteMail = null, trotzdem = null;
 
     const meldung = (text, art) => h('div', { class: 'vs-meldung' + (art ? ' vs-' + art : '') }, text);
 
@@ -206,7 +206,7 @@
       container.textContent = '';
       if (m.quelle === 'regeln') container.appendChild(meldung('Erste Einordnung nach festen Regeln. Die Bewertung folgt, sobald der Helfer die Mail gelesen hat.'));
       for (const n of m.neuere) {
-        const wer = n.art === 'gesendet' ? 'von ING gesendet' : 'von ' + n.von;
+        const wer = n.art === 'gesendet' ? 'aus dem eigenen Postfach gesendet' : 'von ' + n.von;
         container.appendChild(meldung('Im selben Verlauf gibt es eine neuere Nachricht: ' + deDatum(n.zeit) + ' ' + String(n.zeit).slice(11, 16) + ', ' + wer + '.', 'hinweis'));
       }
 
@@ -246,7 +246,7 @@
     }
 
     /*
-      mail: { schluessel, von, vonName, betreff, text, eingang (Date), anhaenge: [name] }
+      mail: { schluessel, von, vonName, betreff, text, eingang (Date), anhaenge: [name], eigeneDomain, postfach }
       Zeigt zuerst die Regeln, dann die Bewertung, falls sie im Speicher liegt.
     */
     async function zeige(mail) {
@@ -262,6 +262,17 @@
         return;
       }
       if (hier !== lauf) return;
+      // Vorschläge gelten nur für das Postfach aus dem Register. Fehlt eine der beiden Angaben, wird nicht gesperrt.
+      // Die Meldung nennt das erkannte Postfach, und die Sperre lässt sich je Mail aufheben.
+      const soll = String(reg.postfach || '').toLowerCase();
+      const ist = String(mail.postfach || '').toLowerCase();
+      if (soll && ist && soll !== ist && trotzdem !== mail.schluessel) {
+        container.appendChild(meldung('Diese Mail liegt im Postfach ' + ist + '. Vorschläge gibt es nur für ' + soll + '.', 'hinweis'));
+        const k = h('button', { class: 'vs-knopf' }, 'Trotzdem einordnen');
+        k.onclick = () => { trotzdem = mail.schluessel; zeige(mail); };
+        container.appendChild(h('div', { class: 'vs-bedienung' }, k));
+        return;
+      }
       const regeln = wurzel.FPEinordnung.einordnen(mail, reg, (dienste.mappen && dienste.mappen()) || []);
       male(zusammenfuehren(regeln, null, reg));
       let gespeichert = null;

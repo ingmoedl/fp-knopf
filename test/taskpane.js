@@ -236,7 +236,7 @@ async function ladeStammdaten() {
   if (!el("firma").value) el("firma").value = firmaRaten();
 }
 
-function nachname(anzeige) { // „Giepen, Max“ → „Giepen“, „Max Giepen“ → „Giepen“
+function nachname(anzeige) { // „Muster, Max“ → „Muster“, „Max Muster“ → „Muster“
   const s = (anzeige || "").replace(/\(.*?\)|<.*?>|".*?"/g, "").trim();
   if (s.includes(",")) return s.split(",")[0].trim();
   const t = s.split(/\s+/).filter(Boolean);
@@ -319,12 +319,36 @@ async function kurzHash(s) {
   return [...new Uint8Array(b)].map((x) => x.toString(16).padStart(2, "0")).join("").slice(0, 20);
 }
 
+// Domain des angemeldeten Kontos. Daran erkennt die Einordnung Absender aus dem eigenen Haus.
+function eigeneDomain() {
+  try { return ((Office.context.mailbox.userProfile.emailAddress || "").split("@")[1] || "").toLowerCase(); }
+  catch (e) { return ""; }
+}
+
+// Postfach, in dem die geöffnete Mail liegt. In einem freigegebenen Postfach nennt Outlook es über die
+// Freigabe-Eigenschaften, sonst ist es das angemeldete Konto. Ohne Antwort bleibt es leer, dann sperrt der Reiter nicht.
+function mailPostfach(it) {
+  const eigenes = () => { try { return (Office.context.mailbox.userProfile.emailAddress || "").toLowerCase(); } catch (e) { return ""; } };
+  return new Promise((ok) => {
+    if (!it || typeof it.getSharedPropertiesAsync !== "function") { ok(eigenes()); return; }
+    let fertig = false;
+    const ende = (w) => { if (!fertig) { fertig = true; ok(w); } };
+    setTimeout(() => ende(""), 4000);
+    try {
+      it.getSharedPropertiesAsync((r) => {
+        const v = r && r.status === Office.AsyncResultStatus.Succeeded ? r.value : null;
+        ende(String((v && (v.owner || v.targetMailbox)) || eigenes()).toLowerCase());
+      });
+    } catch (e) { ende(eigenes()); }
+  });
+}
+
 async function zeigeVorschlag() {
   if (!vorschlag) return;
   const it = mailItem();
   if (!it) { vorschlag.zeige(null); return; }
   const lauf = ++vorschlagLauf;
-  const text = await mailText();
+  const [text, postfach] = await Promise.all([mailText(), mailPostfach(it)]);
   if (lauf !== vorschlagLauf) return;               // inzwischen wurde eine andere Mail gewählt
   vorschlag.zeige({
     schluessel: it.internetMessageId || it.itemId || "",
@@ -334,6 +358,8 @@ async function zeigeVorschlag() {
     text: neuesterTeil(text).slice(0, 6000),
     eingang: it.dateTimeCreated || new Date(),
     anhaenge: (it.attachments || []).filter((a) => !a.isInline).map((a) => a.name),
+    eigeneDomain: eigeneDomain(),
+    postfach,
   });
 }
 
