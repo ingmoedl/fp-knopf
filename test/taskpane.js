@@ -35,6 +35,10 @@ let gewaehlt = null;      // gewählte Mappe im Modus „Zu bestehender“
 let modus = "neu";        // „vor“ (Vorschlag), „neu“, „alt“ oder „liste“ (Übersicht aller Aufgaben)
 let vorschlag = null;     // FPVorschlag im Reiter „Vorschlag“ (vorschlag.js)
 let vorschlagLauf = 0;    // verwirft veraltete Mailtexte beim schnellen Mailwechsel
+let vorschlagRegister = null; // zuletzt geladenes Register (für den Schalter „probebetrieb“)
+
+// Probebetrieb gilt, solange das Register ihn nicht ausdrücklich abschaltet. Dann ändern die Tasten nichts am Postfach.
+const imProbebetrieb = () => !vorschlagRegister || vorschlagRegister.probebetrieb !== false;
 let laeuft = false;
 let uebersicht = null;    // FPUebersicht im Reiter „Übersicht“ (uebersicht.js)
 let mailPruefung = 0;     // verwirft veraltete Antworten beim schnellen Mailwechsel
@@ -370,7 +374,8 @@ function vorschlagDienste() {
       const [g, p] = await Promise.all([datei(CONFIG.wissenRel + "/regeln/gebaeude.json"), datei(CONFIG.wissenRel + "/regeln/parteien.json")]);
       if (!g || !p) throw new Error("Registerdateien sind leer oder kein gültiges JSON.");
       const ext = [...new Set((p.parteien || []).map((x) => x.ordner_ext).filter(Boolean).concat(p.ext_ohne_partei || []))].sort();
-      return Object.assign({}, g, { parteien: p.parteien || [], ordnerExt: ext, kuerzel: CONFIG.bearbeiter.map((b) => b.kuerzel) });
+      vorschlagRegister = Object.assign({}, g, { parteien: p.parteien || [], ordnerExt: ext, kuerzel: CONFIG.bearbeiter.map((b) => b.kuerzel) });
+      return vorschlagRegister;
     },
     // Der Helfer legt je Mail eine Datei ab: vorschlaege/<JJJJ-MM des Eingangs>/<Kurz-Hash der Message-ID>.json
     ladeVorschlag: async (mail) => {
@@ -410,6 +415,11 @@ async function vorschlagAktion(s, wahl) {
     case "zuweisen": {
       const k = wahl.ziel || s.kuerzel;
       if (!k) throw new Error("Kein Kürzel gewählt.");
+      // Im Probebetrieb bleibt die Mail unberührt: Die Zuweisung wird nur vermerkt.
+      if (imProbebetrieb()) {
+        await auftragSchreiben(it, s, Object.assign({}, wahl, { ziel: k }));
+        return "Probebetrieb: Zuweisung an " + k + " vermerkt. Die Kategorie wird nicht gesetzt.";
+      }
       await new Promise((ok, nein) => it.categories.addAsync([k], (r) => (r.status === Office.AsyncResultStatus.Succeeded ? ok() : nein(new Error((r.error && r.error.message) || "Kategorie nicht gesetzt.")))));
       return "Kategorie " + k + " gesetzt.";
     }
@@ -439,15 +449,17 @@ async function vorschlagAktion(s, wahl) {
 async function auftragSchreiben(it, s, wahl) {
   const zeit = new Date();
   const id = zeit.toISOString().replace(/[-:.TZ]/g, "").slice(0, 14) + "_" + (await kurzHash((it.internetMessageId || it.itemId || "") + s.art));
-  const vorgeschlagen = s.art === "ablegen" ? (s.ziel_kom || "") : ((s.ziele || [])[0] || "");
+  const vorgeschlagen = s.art === "ablegen" ? (s.ziel_kom || "") : s.art === "zuweisen" ? (s.kuerzel || "") : ((s.ziele || [])[0] || "");
   const auftrag = {
     id, art: s.art, schluessel: it.internetMessageId || "", betreff: it.subject || "",
     ziel: wahl.ziel || "", vorgeschlagen, ampel: s.ampel || "", selbstGewaehlt: !!wahl.selbstGewaehlt,
-    von: (ich() || {}).kuerzel || "", wann: zeit.toISOString(), probebetrieb: true,
+    von: (ich() || {}).kuerzel || "", wann: zeit.toISOString(), probebetrieb: imProbebetrieb(),
   };
   const body = new TextEncoder().encode(JSON.stringify(auftrag, null, 1));
   await sp(`${CONFIG.web}/_api/web/GetFolderByServerRelativePath(decodedurl='${pfad(CONFIG.wissenRel + "/auftraege/offen")}')/Files/AddUsingPath(decodedurl='${pfad(id + ".json")}',overwrite=false)`, { method: "POST", body });
-  return "Auftrag gespeichert. Ausgeführt wird er erst, wenn der Helfer Aufträge übernimmt.";
+  return imProbebetrieb()
+    ? "Probebetrieb: Auftrag vermerkt. Ausgeführt wird noch nichts."
+    : "Auftrag gespeichert. Der Helfer führt ihn beim nächsten Lauf aus.";
 }
 
 /* Hinweis oben: Mail ist gelb markiert (Aufgabe gibt es schon) oder liegt schon in einer Mappe */

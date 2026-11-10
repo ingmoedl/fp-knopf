@@ -243,6 +243,8 @@
         fuss.appendChild(neu);
       } else fuss.appendChild(h('span', {}, 'Nur Regeln, ohne Claude'));
       container.appendChild(fuss);
+      // Probebetrieb gilt, solange das Register ihn nicht ausdrücklich abschaltet
+      if (!reg || reg.probebetrieb !== false) container.appendChild(h('div', { class: 'vs-offen' }, 'Probebetrieb: Am Postfach ändert sich nichts. Entwürfe öffnen sich nur, Ablegen und Zuweisen werden vermerkt.'));
     }
 
     /*
