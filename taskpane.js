@@ -9,18 +9,20 @@
 const E = window.FP_EINSTELLUNGEN || {};
 const S = E.sharepoint || {};
 const CONFIG = {
-  version: "0.6",
+  version: "0.7",
   clientId: E.clientId,                             // App-Registrierung „FP-Knopf“ (einstellungen.js)
   tenantId: E.tenantId || "1571141a-75a9-43a3-ad47-8d613cfbb3e6",
   spHost: S.host || "https://ingburghausengmbh.sharepoint.com",
   web: S.web || "/sites/2024",
   listId: S.listId || "a83c2f28-6212-4181-b8ce-3445d7cd81ab",   // Bibliothek „FP-Aufgaben“
   libRel: S.libRel || "/sites/2024/FPAufgaben",
+  archiv: S.archiv || "Archiv",                     // Unterordner mit erledigten Mappen (pflegt der FP-Abgleich)
   contentType: "FP-Aufgabe",
   bearbeiter: E.bearbeiter || [],                   // einstellungen.js
   ohneFirma: ["ing"],                               // eigene Firma nicht automatisch vorschlagen
 };
 CONFIG.scopes = [CONFIG.spHost + "/AllSites.Write"];
+const spCfg = () => ({ host: CONFIG.spHost, web: CONFIG.web, listId: CONFIG.listId, libRel: CONFIG.libRel, archiv: CONFIG.archiv });
 
 let pca = null;
 let standalone = false;
@@ -152,7 +154,7 @@ function starteUebersicht() {
   if (uebersicht || !konto() || !window.FPUebersicht) return;
   uebersicht = window.FPUebersicht.start(el("liste-bereich"), {
     sp, schmal: true, speicher: "outlook", ich: ich(), bearbeiter: CONFIG.bearbeiter, oeffnen: browserFenster, inOutlook: !standalone,
-    cfg: { host: CONFIG.spHost, web: CONFIG.web, listId: CONFIG.listId, libRel: CONFIG.libRel },
+    cfg: spCfg(),
   });
 }
 
@@ -196,9 +198,12 @@ const liste = () => `${CONFIG.web}/_api/web/lists(guid'${CONFIG.listId}')`;
 
 /* Firmen und Ansprechpersonen aus allen Mappen: was oft vorkommt, steht oben */
 async function ladeStammdaten() {
-  const [f, r] = await Promise.all([
+  // Mappen ordnerbezogen (aktive Liste und Archiv), nicht über die ganze Bibliothek: ab 5.000 Elementen greift sonst
+  // der Schwellenwert der Listenansicht (siehe FPUebersicht.mappen in uebersicht.js)
+  const [f, offen, archiv] = await Promise.all([
     sp(liste() + "/fields/getbyinternalnameortitle('FPFirma')?$select=Choices"),
-    sp(liste() + "/items?$select=FPFirma,FPAnsprechperson&$filter=FSObjType eq 1&$top=5000"),
+    window.FPUebersicht.mappen(sp, spCfg(), { ordner: CONFIG.libRel, select: "FPFirma,FPAnsprechperson" }),
+    window.FPUebersicht.mappen(sp, spCfg(), { ordner: CONFIG.libRel + "/" + CONFIG.archiv, select: "FPFirma,FPAnsprechperson" }).catch(() => []),
   ]);
   const zahl = {}, schreib = {};   // klein -> Anzahl, klein -> {Schreibweise: Anzahl}
   const merke = (name, n) => {
@@ -209,7 +214,7 @@ async function ladeStammdaten() {
   };
   ((f && f.Choices) || []).forEach((c) => merke(c, 0));
   personen = {}; personenAlle = {};
-  for (const x of (r && r.value) || []) {
+  for (const x of offen.concat(archiv)) {
     const fi = (x.FPFirma || "").trim();
     if (fi) merke(fi, 1);
     for (const p of (x.FPAnsprechperson || "").split(/[\/_;]+/).map((s) => s.trim()).filter(Boolean)) {
@@ -238,9 +243,9 @@ function absenderName() {
 }
 
 async function ladeMappen() {
-  const r = await sp(liste() + "/items?$select=Id,FileLeafRef,FileRef,FPFirma,FPFaelligkeit&$filter=FSObjType eq 1 and FPStatus eq 'Offen'&$top=5000");
-  // nur die aktive Liste, nicht der Unterordner „Archiv“
-  mappen = ((r && r.value) || []).filter((x) => x.FileRef.slice(0, x.FileRef.lastIndexOf("/")) === CONFIG.libRel)
+  const r = await window.FPUebersicht.mappen(sp, spCfg(), { ordner: CONFIG.libRel, select: "Id,FileLeafRef,FileRef,FPFirma,FPFaelligkeit,FPStatus" });
+  // nur offene Mappen der aktiven Liste; der Unterordner „Archiv“ ist in der Ordnerabfrage nicht enthalten
+  mappen = r.filter((x) => x.FPStatus === "Offen" && x.FileRef.slice(0, x.FileRef.lastIndexOf("/")) === CONFIG.libRel)
     .map((x) => ({ id: x.Id, name: x.FileLeafRef, rel: x.FileRef, firma: x.FPFirma || "", faellig: x.FPFaelligkeit || "" }));
   zeigeMappen();
 }
@@ -297,8 +302,16 @@ async function schonAbgelegt() {
   if (E.gelbKategorie && kat.includes(E.gelbKategorie)) teile.push(`Gelb markiert („${html(E.gelbKategorie)}“): Zu dieser Mail gibt es schon eine Aufgabe.`);
   try {
     const basis = dateiname().name.replace(/\.eml$/i, "");
-    const r = await sp(liste() + `/items?$select=FileLeafRef,FileDirRef&$top=5&$filter=FSObjType eq 0 and startswith(FileLeafRef,'${encodeURIComponent(basis.replace(/'/g, "''"))}')`);
-    const ordner = [...new Set(((r && r.value) || []).map((x) => x.FileDirRef))].filter((d) => d.startsWith(CONFIG.libRel + "/") && !d.includes("/_Import"));
+    // In Id-Bereichen suchen, nicht über die ganze Bibliothek (Schwellenwert der Listenansicht ab 5.000 Elementen):
+    // Id ist indiziert, steht sie im Filter vorn, zählt nur der Bereich (hier je 4.000 Ids).
+    const hoch = await sp(liste() + "/items?$select=Id&$orderby=Id desc&$top=1");
+    const maxId = (hoch && hoch.value && hoch.value[0] && hoch.value[0].Id) || 0;
+    const fragen = [];
+    for (let von = 0; von <= maxId; von += 4000) {
+      fragen.push(sp(liste() + `/items?$select=FileLeafRef,FileDirRef&$top=5&$filter=Id ge ${von} and Id lt ${von + 4000} and FSObjType eq 0 and startswith(FileLeafRef,'${encodeURIComponent(basis.replace(/'/g, "''"))}')`));
+    }
+    const treffer = (await Promise.all(fragen)).reduce((a, r) => a.concat((r && r.value) || []), []);
+    const ordner = [...new Set(treffer.map((x) => x.FileDirRef))].filter((d) => d.startsWith(CONFIG.libRel + "/") && !d.includes("/_Import"));
     for (const d of ordner) {
       const name = d.slice(CONFIG.libRel.length + 1).split("/")[0];
       teile.push(`Diese Mail liegt schon in <a data-mappe="${html(name)}">${html(name)}</a>.`);

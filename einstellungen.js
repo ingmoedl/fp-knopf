@@ -13,6 +13,7 @@ window.FP_EINSTELLUNGEN = {
     web: "/sites/2024",
     listId: "a83c2f28-6212-4181-b8ce-3445d7cd81ab",
     libRel: "/sites/2024/FPAufgaben",
+    archiv: "Archiv",                 // Unterordner mit erledigten Mappen (pflegt der FP-Abgleich, siehe ..\FP-Sync)
   },
 
   // Nur Teammitglieder mit dieser Maildomain werden aus team.json übernommen

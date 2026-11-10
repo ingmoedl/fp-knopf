@@ -53,9 +53,36 @@
     /^#[0-9a-f]{6}$/i.test(b.hinter) && /^#[0-9a-f]{6}$/i.test(b.schrift)).slice(0, 30)
     .map((b) => ({ kuerzel: b.kuerzel, name: b.name, mail: b.mail.toLowerCase(), hinter: b.hinter, schrift: b.schrift }));
 
+  /* Mappen eines Ordners, nicht rekursiv, per CAML über GetItems. Eine Abfrage über die ganze Bibliothek
+   * („/items?$filter=FSObjType eq 1“) scheitert ab 5.000 Elementen in der Bibliothek am Schwellenwert der
+   * Listenansicht (seit 1.11.2026), weil FSObjType und die FP-Spalten nicht indiziert sind; bei einer Ordnerabfrage
+   * zählt nur der Inhalt des Ordners selbst (die Mappen, nicht die Mails darin). GetItems erweitert keine
+   * Personenfelder, darum kommen Editor und FPBearbeiter als Ids (EditorId, FPBearbeiterId) und werden über
+   * getuserbyid aufgelöst, einmal je Person und Sitzung; das Ergebnis sieht aus wie bei /items mit $expand.
+   * o = { ordner: Serverpfad des Ordners, select: Spalten, mails: true → Folder/ItemCount (Anzahl Mails je Mappe) } */
+  const CAML_MAPPEN = "<View><Query><Where><Eq><FieldRef Name='FSObjType'/><Value Type='Integer'>1</Value></Eq></Where></Query><RowLimit>5000</RowLimit></View>";
+  const SEL_MAPPE = "Id,FileLeafRef,FileRef,FPFirma,FPAnsprechperson,FPFaelligkeit,FPStatus,FPErledigtAm,Modified,EditorId,FPBearbeiterId";
+  const NUTZER = new Map();                                                                      // Id → Promise<{Title, EMail}>
+  const nutzer = (sp, cfg, id) => {
+    if (!NUTZER.has(id)) NUTZER.set(id, sp(`${cfg.web}/_api/web/getuserbyid(${Number(id)})?$select=Title,Email`)
+      .then((u) => ({ Title: (u && u.Title) || "", EMail: (u && u.Email) || "" }), () => { NUTZER.delete(id); return { Title: "", EMail: "" }; }));
+    return NUTZER.get(id);
+  };
+  async function mappen(sp, cfg, o) {
+    const url = `${cfg.web}/_api/web/lists(guid'${cfg.listId}')/GetItems?$select=${o.select}` + (o.mails ? ",Folder/ItemCount&$expand=Folder" : "");
+    const r = await sp(url, { method: "POST", body: { query: { ViewXml: CAML_MAPPEN, FolderServerRelativeUrl: o.ordner } } });
+    const liste = (r && r.value) || [];
+    for (const x of liste) {
+      if ("EditorId" in x) x.Editor = x.EditorId ? await nutzer(sp, cfg, x.EditorId) : null;
+      if ("FPBearbeiterId" in x) x.FPBearbeiter = await Promise.all((Array.isArray(x.FPBearbeiterId) ? x.FPBearbeiterId : []).map((id) => nutzer(sp, cfg, id)));
+    }
+    return liste;
+  }
+
   window.FPUebersicht = {
     start: (root, o) => { const a = new App(root, o); a.init(); return a; },
     team: async (sp, cfg, domain) => teamPruefen(await sp(`${cfg.web}/_api/web/GetFileByServerRelativePath(decodedurl='${pfad(cfg.libRel + "/_Import/team.json")}')/$value`), domain),
+    mappen,                                                                                      // auch für den FP-Knopf (taskpane.js)
   };
 
   function App(root, o) {
@@ -172,12 +199,11 @@
 
   /* ---------- Daten ---------- */
 
-  App.prototype.abfrage = function () {
-    const h = new Date(); h.setHours(0, 0, 0, 0);
-    const sel = this.mitOrdner ? SEL : SEL.replace(",Folder/ItemCount", "");
-    const exp = this.mitOrdner ? EXP : EXP.replace(",Folder", "");
-    return this.liste() + `/items?$select=${sel}&$expand=${exp}&$top=5000` +
-      `&$filter=FSObjType eq 1 and (FPStatus eq 'Offen' or FPErledigtAm ge datetime'${h.toISOString().replace(/\.\d+Z$/, "Z")}')`;
+  /* Mappen direkt in der Bibliothek, offen oder heute erledigt (ordnerbezogen, siehe mappen oben) */
+  App.prototype.abfrage = async function () {
+    const heute = tagIso(new Date());
+    const alle = await mappen(this.o.sp, this.c, { ordner: this.c.libRel, select: SEL_MAPPE, mails: this.mitOrdner });
+    return alle.filter((x) => x.FPStatus === "Offen" || (x.FPStatus && x.FPErledigtAm && ausSp(x.FPErledigtAm) >= heute));
   };
 
   App.prototype.aufgabe = function (x) {
@@ -200,11 +226,11 @@
     this.live();
     try {
       let r;
-      try { r = await this.o.sp(this.abfrage()); }
-      catch (e) { if (this.mitOrdner && e.status === 400) { this.mitOrdner = false; r = await this.o.sp(this.abfrage()); } else throw e; }
+      try { r = await this.abfrage(); }
+      catch (e) { if (this.mitOrdner && e.status === 400) { this.mitOrdner = false; r = await this.abfrage(); } else throw e; }
       const neu = new Map();
       // nur die aktive Liste: Mappen direkt in der Bibliothek, nicht im Unterordner „Archiv“
-      for (const x of (r && r.value) || []) if ((x.FileRef || "").slice(0, x.FileRef.lastIndexOf("/")) === this.c.libRel) neu.set(x.Id, this.aufgabe(x));
+      for (const x of r) if ((x.FileRef || "").slice(0, x.FileRef.lastIndexOf("/")) === this.c.libRel) neu.set(x.Id, this.aufgabe(x));
       for (const [id, a] of neu) {
         const alt = this.items.get(id);
         const vonAnderen = a.von.mail && a.von.mail !== this.ich.mail;
@@ -247,13 +273,15 @@
 
   /* Firmen und Personen aus allen Mappen für die Eingabehilfen: häufige zuerst */
   App.prototype.stammdaten = async function () {
-    const [f, r] = await Promise.all([
+    // aktive Liste und Archiv je für sich (ordnerbezogen, siehe mappen oben); fehlt das Archiv, zählt nur die Liste
+    const [f, offen, archiv] = await Promise.all([
       this.o.sp(this.liste() + "/fields/getbyinternalnameortitle('FPFirma')?$select=Choices"),
-      this.o.sp(this.liste() + "/items?$select=FPFirma,FPAnsprechperson&$filter=FSObjType eq 1&$top=5000"),
+      mappen(this.o.sp, this.c, { ordner: this.c.libRel, select: "FPFirma,FPAnsprechperson" }),
+      mappen(this.o.sp, this.c, { ordner: this.c.libRel + "/" + (this.c.archiv || "Archiv"), select: "FPFirma,FPAnsprechperson" }).catch(() => []),
     ]);
     const firmen = {}, personen = {};
     ((f && f.Choices) || []).forEach((c) => { firmen[c] = firmen[c] || 0; });
-    for (const x of (r && r.value) || []) {
+    for (const x of offen.concat(archiv)) {
       if (x.FPFirma) firmen[x.FPFirma.trim()] = (firmen[x.FPFirma.trim()] || 0) + 1;
       for (const p of (x.FPAnsprechperson || "").split(/[\/_;]+/).map((s) => s.trim()).filter(Boolean)) personen[p] = (personen[p] || 0) + 1;
     }
