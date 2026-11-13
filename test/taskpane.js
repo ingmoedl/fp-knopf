@@ -364,6 +364,7 @@ async function zeigeVorschlag() {
     anhaenge: (it.attachments || []).filter((a) => !a.isInline).map((a) => a.name),
     eigeneDomain: eigeneDomain(),
     postfach,
+    an: (it.to || []).map((x) => String((x && x.emailAddress) || "").toLowerCase()).filter(Boolean),
   });
 }
 
@@ -374,7 +375,10 @@ function vorschlagDienste() {
       const [g, p] = await Promise.all([datei(CONFIG.wissenRel + "/regeln/gebaeude.json"), datei(CONFIG.wissenRel + "/regeln/parteien.json")]);
       if (!g || !p) throw new Error("Registerdateien sind leer oder kein gültiges JSON.");
       const ext = [...new Set((p.parteien || []).map((x) => x.ordner_ext).filter(Boolean).concat(p.ext_ohne_partei || []))].sort();
-      vorschlagRegister = Object.assign({}, g, { parteien: p.parteien || [], ordnerExt: ext, kuerzel: CONFIG.bearbeiter.map((b) => b.kuerzel) });
+      vorschlagRegister = Object.assign({}, g, {
+        parteien: p.parteien || [], ordnerExt: ext, kuerzel: CONFIG.bearbeiter.map((b) => b.kuerzel),
+        domainStatistik: p.domain_statistik || {}, messung: p.messung || null,
+      });
       return vorschlagRegister;
     },
     // Der Helfer legt je Mail eine Datei ab: vorschlaege/<JJJJ-MM des Eingangs>/<Kurz-Hash der Message-ID>.json

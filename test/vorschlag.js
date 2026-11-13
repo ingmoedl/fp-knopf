@@ -189,6 +189,15 @@
       return k;
     }
 
+    // Gemessene Trefferquote der Partei-Regel, wenn das Register eine Messung mitbringt.
+    // Bevorzugt die Prüfung an Mails, die nicht zum Lernen der Absender dienten.
+    function quoteSatz(r) {
+      const m = r && r.messung;
+      const e = m && (m.pruefung && m.pruefung.anzahl ? m.pruefung : m.eingang);
+      if (!e || !e.anzahl) return 'Trefferquote: noch keine Messung';
+      return 'Partei-Regel trifft ' + e.quote + ' % (geprüft an ' + e.anzahl + ' abgelegten Mails)';
+    }
+
     function vorschlagZeile(s, istHaupt) {
       const [titel, zusatz] = beschriftung(s, reg && reg.ablage);
       const zeile = h('div', { class: istHaupt ? 'vs-haupt' : 'vs-zeile' });
@@ -237,11 +246,11 @@
 
       const fuss = h('div', { class: 'vs-fuss' });
       if (m.bewertet) {
-        fuss.appendChild(h('span', {}, String(m.bewertet.wann || '').slice(11, 16) + ' · ' + modellKurz(m.bewertet.modell) + ' · Trefferquote: noch keine Messung'));
+        fuss.appendChild(h('span', {}, String(m.bewertet.wann || '').slice(11, 16) + ' · ' + modellKurz(m.bewertet.modell) + ' · ' + quoteSatz(reg) + (quoteSatz(reg).startsWith('Partei') ? ' · Vorschläge der Bewertung sind nicht gemessen' : '')));
         const neu = h('button', { class: 'vs-link' }, 'Neu bewerten');
         neu.onclick = () => ausfuehren({ art: 'neu_bewerten' }, neu, fuss, {});
         fuss.appendChild(neu);
-      } else fuss.appendChild(h('span', {}, 'Nur Regeln, ohne Claude'));
+      } else fuss.appendChild(h('span', {}, 'Nur Regeln, ohne Claude · ' + quoteSatz(reg)));
       container.appendChild(fuss);
       // Probebetrieb gilt, solange das Register ihn nicht ausdrücklich abschaltet
       if (!reg || reg.probebetrieb !== false) container.appendChild(h('div', { class: 'vs-offen' }, 'Probebetrieb: Am Postfach ändert sich nichts. Entwürfe öffnen sich nur, Ablegen und Zuweisen werden vermerkt.'));

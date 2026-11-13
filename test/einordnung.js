@@ -132,6 +132,17 @@
     return null;
   }
 
+  // Ampel einer Domain aus der Messung an abgelegten Mails (reg.domainStatistik: Domain -> { mails, treffer }).
+  // Grün nur, wenn genug Mails vorliegen und fast alle im zugeordneten Ordner liegen.
+  function belegAusAblage(d, reg) {
+    const st = (reg.domainStatistik || {})[d];
+    if (!st || !st.mails) return { ampel: 'gelb', grund: 'Absender ' + d + ' steht im Register, aus der Ablage gibt es dazu noch keinen Beleg.' };
+    const satz = st.treffer + ' von ' + st.mails + ' abgelegten Mails dieses Absenders liegen in diesem Ordner.';
+    if (st.mails >= 10 && st.treffer / st.mails >= 0.95) return { ampel: 'gruen', grund: satz };
+    if (st.mails < 10) return { ampel: 'gelb', grund: satz + ' Das sind noch wenige.' };
+    return { ampel: 'gelb', grund: 'Nur ' + satz };
+  }
+
   // Partei aus der Absenderadresse. Unbekannte Domain ergibt rot, nie eine geratene Partei.
   function parteiFinden(adresse, reg) {
     const dom = String(adresse || '').toLowerCase().split('@')[1] || '';
@@ -139,7 +150,8 @@
     for (const p of reg.parteien || []) {
       for (const d of p.domains || []) {
         if (dom === d || dom.endsWith('.' + d)) {
-          return { ordner_kom: p.ordner_kom, ordner_ext: p.ordner_ext || '', rolle: p.rolle || '', ampel: 'gruen', grund: 'Absender ' + d + ' ist bekannt.' };
+          const b = belegAusAblage(d, reg);
+          return { ordner_kom: p.ordner_kom, ordner_ext: p.ordner_ext || '', rolle: p.rolle || '', ampel: b.ampel, grund: b.grund };
         }
       }
     }
@@ -243,6 +255,8 @@
     // sagt der Absender nichts über die Partei, die Ablage ist dann nur ein Anhalt.
     const vonDomain = String(mail.von || '').toLowerCase().split('@')[1] || '';
     const intern = !!mail.eigeneDomain && vonDomain === String(mail.eigeneDomain).toLowerCase();
+    // Dass der Absender aus dem eigenen Haus kommt, steht fest. Unsicher ist nur, wohin die Mail gehört.
+    if (intern && partei.ordner_kom) { partei.ampel = 'gruen'; partei.grund = 'Absender ist das eigene Haus.'; }
     const pv = pruefFrist(mail.von, mail.betreff, reg);
     const ext = (reg.ablage && reg.ablage.ext) || 'der Ablage für Unterlagen';
     const vorschlaege = [];
@@ -251,10 +265,24 @@
       vorschlaege.push({ art: 'pruefaufgabe', frist: pv.frist, name: pv.name, ampel: 'gruen', grund: pv.name + ' nennt die Prüffrist im Betreff.' });
     }
     if (aufgabe) vorschlaege.push({ art: 'aufgabe_zuordnen', mappe: aufgabe.mappe, ampel: aufgabe.ampel, grund: aufgabe.grund });
-    if (partei.ordner_kom) {
+    // Gesendete und interne Mails: Die Ablage folgt dem ersten Empfänger außerhalb des eigenen Hauses.
+    let empfaengerPartei = null;
+    if (intern) {
+      const eigene = String(mail.eigeneDomain).toLowerCase();
+      const fremd = (mail.an || []).map((a) => String(a || '').toLowerCase()).find((a) => { const d = a.split('@')[1] || ''; return d && d !== eigene; });
+      if (fremd) { const pz = parteiFinden(fremd, reg); if (pz.ordner_kom) empfaengerPartei = pz; }
+    }
+    const mg = reg.messung && (reg.messung.pruefung_gesendet && reg.messung.pruefung_gesendet.anzahl ? reg.messung.pruefung_gesendet : reg.messung.gesendet);
+    const quoteGesendet = mg && mg.anzahl ? mg.quote : null;
+    if (empfaengerPartei) {
+      vorschlaege.push({
+        art: 'ablegen', ziel_kom: empfaengerPartei.ordner_kom, ampel: 'gelb',
+        grund: 'Absender ist das eigene Haus, die Ablage folgt dem ersten fremden Empfänger.' + (quoteGesendet !== null ? ' Das traf bei ' + quoteGesendet + ' % der abgelegten Mails zu.' : ''),
+      });
+    } else if (partei.ordner_kom) {
       vorschlaege.push(intern
-        ? { art: 'ablegen', ziel_kom: partei.ordner_kom, ampel: 'gelb', grund: 'Absender ist das eigene Haus. Bei einer Weiterleitung kann die Partei im Verlauf die richtige sein.' }
-        : { art: 'ablegen', ziel_kom: partei.ordner_kom, ampel: 'gruen', grund: 'Ablage folgt dem Absender.' });
+        ? { art: 'ablegen', ziel_kom: partei.ordner_kom, ampel: 'gelb', grund: 'Absender ist das eigene Haus und kein fremder Empfänger ist erkennbar. Bei einer Weiterleitung kann die Partei im Verlauf die richtige sein.' }
+        : { art: 'ablegen', ziel_kom: partei.ordner_kom, ampel: partei.ampel, grund: 'Ablage folgt dem Absender. ' + partei.grund });
     } else {
       vorschlaege.push({ art: 'ablegen', ziel_kom: '', ampel: 'rot', grund: 'Kein Ablageordner bekannt, bitte wählen.' });
     }
