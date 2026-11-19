@@ -162,22 +162,27 @@
     seiteZeigen(true);
   }
 
-  /* Eine Änderung speichern. Bei einem Fehler bleibt die Anzeige, wie sie war. Hat jemand anderes inzwischen
-     geändert, werden die Aufgaben neu geladen. */
+  /* Stand aus SharePoint in die Aufgabe übernehmen. Ist sie dort nicht mehr offen, fällt sie aus der Liste. */
+  function standUebernehmen(a, s) {
+    a.geaendert = s.geaendert;
+    if (s.status !== 'Offen') { Z.aufgaben = Z.aufgaben.filter((x) => x !== a); if (Z.offen === a.id) Z.offen = null; }
+    else a.faellig = s.faellig;
+  }
+
+  /* Eine Änderung speichern. Bei einem Fehler bleibt die Anzeige, wie sie war. Hat jemand anderes genau dieses
+     Feld inzwischen geändert, wird nichts überschrieben und die Aufgabe zeigt danach dessen Stand. */
   async function aendern(a, tun, danach, text) {
     if (!bearb || !a || Z.arbeit) return;
     Z.arbeit = a.id; Z.meldung = null;
     seiteZeigen(true);
     try {
-      const r = await tun();
-      a.geaendert = r.geaendert;
+      const s = await tun();
+      a.geaendert = s.geaendert;
       Z.meldung = { id: a.id, text, art: 'ok' };
-      danach();
+      danach(s);
     } catch (e) {
       Z.meldung = { id: a.id, text: msg(e), art: 'warn' };
-      if (e && e.konflikt) {
-        try { Z.aufgaben = (await daten.aufgaben()).liste; Z.meldung.text += ' Die Anzeige ist jetzt aktuell.'; } catch (f) { Z.fehlerAufgaben = msg(f); }
-      }
+      if (e && e.konflikt && e.stand) { standUebernehmen(a, e.stand); Z.meldung.text += ' Die Anzeige ist jetzt aktuell.'; if (!Z.aufgaben.includes(a)) delete Z.meldung.id; }
     }
     Z.arbeit = null;
     neuRechnen();
@@ -198,11 +203,14 @@
     Z.arbeit = a.id; Z.meldung = { text: 'Wird zurückgenommen …', art: 'ok' };
     seiteZeigen(true);
     try {
-      const r = await bearb.wiederOeffnen(a);
-      a.geaendert = r.geaendert;
+      const s = await bearb.wiederOeffnen(a);
+      a.geaendert = s.geaendert; a.faellig = s.faellig;
       Z.aufgaben = Z.aufgaben.concat(a); Z.zurueck = null;
       Z.meldung = { text: 'Wieder offen: ' + a.titel, art: 'ok' };
-    } catch (e) { Z.meldung = { text: msg(e), art: 'warn' }; }
+    } catch (e) {
+      Z.meldung = { text: msg(e), art: 'warn' };
+      if (e && e.konflikt && e.stand && e.stand.status === 'Offen') { a.faellig = e.stand.faellig; Z.aufgaben = Z.aufgaben.concat(a); Z.zurueck = null; Z.meldung.text += ' Die Anzeige ist jetzt aktuell.'; }
+    }
     Z.arbeit = null;
     neuRechnen();
   }

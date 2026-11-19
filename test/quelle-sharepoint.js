@@ -113,7 +113,8 @@
         for (let v = 1; v <= 4; v++) {
           const headers = { Authorization: 'Bearer ' + (await token()), Accept: 'application/json;odata=nometadata' };
           if (opts.body !== undefined) headers['Content-Type'] = 'application/json;odata=nometadata';
-          const r = await holen(S.host + pfad, { method: opts.method || 'GET', headers, body: opts.body === undefined ? undefined : JSON.stringify(opts.body) });
+          // Lesen immer frisch: Vor dem Schreiben zählt der Stand in SharePoint, nicht eine Kopie des Browsers
+          const r = await holen(S.host + pfad, { method: opts.method || 'GET', headers, cache: 'no-store', body: opts.body === undefined ? undefined : JSON.stringify(opts.body) });
           if (r.status === 429 || r.status === 503) {
             const nach = r.headers && r.headers.get ? r.headers.get('Retry-After') : null;
             await warte((nach !== null && nach !== '' && isFinite(Number(nach)) ? Number(nach) : 3 * v) * 1000);
