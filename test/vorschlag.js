@@ -169,6 +169,68 @@
     };
   }
 
+  /* Bereich nach Wilson (95 %) für den Anteil k von n. Bei wenigen Urteilen ist er breit, und das soll man sehen. */
+  function bereich(k, n) {
+    if (!n) return null;
+    const z = 1.96, p = k / n, d = 1 + z * z / n;
+    const mitte = (p + z * z / (2 * n)) / d, halb = z * Math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / d;
+    return { von: Math.max(0, mitte - halb), bis: Math.min(1, mitte + halb) };
+  }
+
+  /*
+    Wertet die Urteile aus (Messung für Tor T1).
+    urteile: Datensätze aus korrekturen/, je Mail und Person einer.
+    Je Mail zählt ein Urteil. Haben mehrere Personen dieselbe Mail beurteilt, gilt das strengere:
+    Handlung nötig vor nicht nötig, falsch vor brauchbar vor richtig.
+      Treffer     bei Mails mit Handlung: Hauptvorschlag richtig oder brauchbar
+      verpasst    Handlung nötig, vorgeschlagen war „Kenntnis“. Das ist der teure Fehler.
+      Fehlalarm   keine Handlung nötig, vorgeschlagen war etwas anderes als „Kenntnis“
+    Schwellen aus dem Plan, als Vorschlag (Entscheidung E2 steht aus): gewertet wird ab 40 Mails mit Handlung,
+    bestanden bei mindestens 70 % Treffern, höchstens 20 % Fehlalarmen und besser als „immer Kenntnis“.
+    55 bis unter 70 %: nachschärfen. Darunter ruht der Teil mit Claude.
+  */
+  const SOLL = { mails: 40 };
+  function auswerten(urteile) {
+    const rang = { richtig: 0, brauchbar: 1, falsch: 2 };
+    const jeMail = new Map(), personen = new Set();
+    let gueltig = 0;
+    for (const x of urteile || []) {
+      if (!x || !x.schluessel || typeof x.handlung !== 'boolean' || !URTEILE.includes(x.haupt)) continue;
+      gueltig++;
+      if (x.von) personen.add(String(x.von));
+      const alt = jeMail.get(x.schluessel);
+      if (!alt) { jeMail.set(x.schluessel, { handlung: x.handlung, haupt: x.haupt, hauptArt: String(x.hauptArt || ''), uneinig: false }); continue; }
+      if (alt.handlung !== x.handlung || alt.haupt !== x.haupt) alt.uneinig = true;
+      alt.handlung = alt.handlung || x.handlung;
+      if (rang[x.haupt] > rang[alt.haupt]) alt.haupt = x.haupt;
+    }
+    const mh = { n: 0, richtig: 0, brauchbar: 0, falsch: 0, treffer: 0, anteil: null, bereich: null };
+    const oh = { n: 0, fehlalarme: 0, anteil: null, bereich: null };
+    let verpasst = 0, uneinig = 0;
+    for (const m of jeMail.values()) {
+      if (m.uneinig) uneinig++;
+      if (m.handlung) { mh.n++; mh[m.haupt]++; if (m.hauptArt === 'kenntnis') verpasst++; }
+      else { oh.n++; if (m.hauptArt && m.hauptArt !== 'kenntnis') oh.fehlalarme++; }
+    }
+    mh.treffer = mh.richtig + mh.brauchbar;
+    if (mh.n) { mh.anteil = mh.treffer / mh.n; mh.bereich = bereich(mh.treffer, mh.n); }
+    if (oh.n) { oh.anteil = oh.fehlalarme / oh.n; oh.bereich = bereich(oh.fehlalarme, oh.n); }
+    const mails = mh.n + oh.n;
+    const gesamt = { treffer: mh.treffer + oh.n - oh.fehlalarme, anteil: mails ? (mh.treffer + oh.n - oh.fehlalarme) / mails : null };
+    const immer = { treffer: oh.n, anteil: mails ? oh.n / mails : null };
+    let stand = 'offen';
+    if (mh.n >= SOLL.mails) {
+      // ganze Zahlen statt Anteile, damit 28 von 40 sicher als 70 % gilt
+      const genugTreffer = mh.treffer * 10 >= 7 * mh.n, wenigFehlalarme = oh.fehlalarme * 5 <= oh.n, besser = gesamt.treffer > immer.treffer;
+      stand = genugTreffer && wenigFehlalarme && besser ? 'bestanden' : mh.treffer * 20 >= 11 * mh.n ? 'nachschaerfen' : 'ruht';
+    }
+    return {
+      urteile: gueltig, mails, personen: [...personen].sort(), uneinig,
+      mitHandlung: mh, verpasst, ohneHandlung: oh, gesamt, immerKenntnis: immer,
+      tor: { stand, fehlen: Math.max(0, SOLL.mails - mh.n) },
+    };
+  }
+
   function erzeuge(container, dienste) {
     let lauf = 0, reg = null, letzteMail = null, trotzdem = null, urteil = null;
 
@@ -337,6 +399,11 @@
         neu.onclick = () => ausfuehren({ art: 'neu_bewerten' }, neu, fuss, {});
         fuss.appendChild(neu);
       } else fuss.appendChild(h('span', {}, 'Nur Regeln, ohne Claude · ' + quoteSatz(reg)));
+      if (dienste.ladeUrteile) {
+        const aus = h('button', { class: 'vs-link', type: 'button' }, 'Auswertung');
+        aus.onclick = () => zeigeAuswertung();
+        fuss.appendChild(aus);
+      }
       container.appendChild(fuss);
       // Probebetrieb gilt, solange das Register ihn nicht ausdrücklich abschaltet
       if (!reg || reg.probebetrieb !== false) container.appendChild(h('div', { class: 'vs-offen' }, 'Probebetrieb: Am Postfach ändert sich nichts. Entwürfe öffnen sich nur, Ablegen und Zuweisen werden vermerkt.'));
@@ -385,8 +452,50 @@
       }
     }
 
+    /* Auswertung aller Urteile: wie gut sind die Vorschläge des Helfers, gemessen an dem, was das Team sagt. */
+    async function zeigeAuswertung() {
+      const hier = ++lauf;
+      container.textContent = '';
+      urteil = null;
+      const ort = h('div', { class: 'vs-auswertung' }, meldung('Urteile werden geladen …'));
+      const zurueck = h('button', { class: 'vs-knopf', type: 'button' }, 'Zurück zur Mail');
+      zurueck.onclick = () => zeige(letzteMail);
+      container.appendChild(h('div', { class: 'vs-label' }, 'Auswertung der Urteile'));
+      container.appendChild(ort);
+      container.appendChild(h('div', { class: 'vs-bedienung' }, zurueck));
+      let liste;
+      try { liste = await dienste.ladeUrteile(); }
+      catch (e) {
+        if (hier !== lauf) return;
+        ort.textContent = '';
+        ort.appendChild(meldung('Die Urteile lassen sich nicht laden. (' + (e && e.message ? e.message : e) + ')', 'fehler'));
+        return;
+      }
+      if (hier !== lauf) return;
+      const a = auswerten(liste);
+      const pz = (x) => Math.round(x * 100) + '\u00a0%';      // geschütztes Leerzeichen, damit das Zeichen nicht allein umbricht
+      const mitBereich = (k, o) => k + ' von ' + o.n + ' (' + pz(o.anteil) + ', Bereich ' + Math.round(o.bereich.von * 100) + ' bis ' + pz(o.bereich.bis) + ')';
+      const zeile = (text, art) => ort.appendChild(h('div', { class: 'vs-auswertung-zeile' + (art ? ' vs-' + art : '') }, text));
+      ort.textContent = '';
+      zeile(a.urteile + ' Urteile zu ' + a.mails + ' Mails' + (a.personen.length ? ' von ' + a.personen.join(', ') : '') + '.');
+      if (!a.mails) { zeile('Noch hat niemand eine Bewertung beurteilt. Das geht an jeder bewerteten Mail unter „Dein Urteil“.'); return; }
+      zeile('Mails mit Handlung: Hauptvorschlag richtig oder brauchbar bei ' + (a.mitHandlung.n ? mitBereich(a.mitHandlung.treffer, a.mitHandlung) : 'noch keiner') + '.');
+      zeile('Verpasst: ' + a.verpasst + '. Dort war eine Handlung nötig, vorgeschlagen war „Kenntnis“.', a.verpasst ? 'warn' : '');
+      zeile('Mails ohne Handlung: Fehlalarm bei ' + (a.ohneHandlung.n ? mitBereich(a.ohneHandlung.fehlalarme, a.ohneHandlung) : 'noch keiner') + '.');
+      zeile('Zum Vergleich: Wer immer „Kenntnis“ sagt, läge bei ' + a.immerKenntnis.treffer + ' von ' + a.mails + ' richtig (' + pz(a.immerKenntnis.anteil) + '). Der Helfer liegt bei ' + a.gesamt.treffer + ' von ' + a.mails + ' (' + pz(a.gesamt.anteil) + ').');
+      if (a.uneinig) zeile('Bei ' + a.uneinig + ' Mails urteilen zwei Personen verschieden. Dort zählt das strengere Urteil.');
+      const tor = {
+        offen: 'Tor T1: Es fehlen ' + a.tor.fehlen + ' Mails mit Handlung. Gewertet wird ab ' + SOLL.mails + '.',
+        bestanden: 'Tor T1: bestanden.',
+        nachschaerfen: 'Tor T1: nicht bestanden. Auftrag an den Helfer nachschärfen und am Prüfsatz neu messen.',
+        ruht: 'Tor T1: deutlich verfehlt. Der Teil mit Claude ruht, Ablage und Aufgaben gehen weiter.',
+      }[a.tor.stand];
+      zeile(tor, a.tor.stand === 'bestanden' ? 'gut' : a.tor.stand === 'offen' ? '' : 'warn');
+      zeile('Schwellen (Vorschlag, noch nicht entschieden): mindestens 70\u00a0% richtig oder brauchbar, höchstens 20\u00a0% Fehlalarme, besser als immer „Kenntnis“. Der Bereich zeigt, wie unsicher ein Anteil bei dieser Zahl von Urteilen ist (95\u00a0%).', 'klein');
+    }
+
     return { zeige, neuLaden: () => zeige(letzteMail) };
   }
 
-  wurzel.FPVorschlag = { erzeuge, zusammenfuehren, beschriftung, urteilOrt, urteilSatz };
+  wurzel.FPVorschlag = { erzeuge, zusammenfuehren, beschriftung, urteilOrt, urteilSatz, auswerten };
 })(window);

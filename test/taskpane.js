@@ -399,6 +399,29 @@ function vorschlagDienste() {
       catch (e) { if (e.status === 404) return null; throw e; }
     },
     urteilSpeichern,
+    // Alle Urteile der letzten sechs Monate. Je Urteil eine kleine Datei, gelesen in Bündeln von sechs.
+    ladeUrteile: async () => {
+      const basis = CONFIG.wissenRel + "/korrekturen";
+      const inhalt = (rel, was) => sp(`${CONFIG.web}/_api/web/GetFolderByServerRelativePath(decodedurl='${pfad(rel)}')/${was}?$select=Name&$top=5000`);
+      let ordner;
+      try { ordner = await inhalt(basis, "Folders"); }
+      catch (e) { if (e.status === 404) return []; throw e; }
+      const monate = ((ordner && ordner.value) || []).map((o) => o.Name).filter((n) => /^\d{4}-\d{2}$/.test(n)).sort().slice(-6);
+      const dateien = [];
+      for (const m of monate) {
+        const r = await inhalt(basis + "/" + m, "Files");
+        for (const f of (r && r.value) || []) if (/^[0-9a-f]{20}_[A-Z0-9]+\.json$/.test(f.Name)) dateien.push(`${basis}/${m}/${f.Name}`);
+      }
+      const aus = [];
+      let i = 0;
+      await Promise.all(Array.from({ length: Math.min(6, dateien.length) }, async () => {
+        while (i < dateien.length) {
+          const d = dateien[i++];
+          try { const u = await datei(d); if (u) aus.push(u); } catch (_) { /* eine unlesbare Datei hält die Auswertung nicht auf */ }
+        }
+      }));
+      return aus;
+    },
   };
 }
 
