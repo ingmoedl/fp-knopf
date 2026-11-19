@@ -394,6 +394,11 @@ function vorschlagDienste() {
     },
     mappen: () => mappen.map((m) => m.name),
     aktion: vorschlagAktion,
+    // Stand des Helfers am PC: wann zuletzt gelaufen, ob er wartet oder abgemeldet ist (stand/helfer.json)
+    ladeHelferStand: async () => {
+      try { return await datei(CONFIG.wissenRel + "/stand/helfer.json"); }
+      catch (e) { if (e.status === 404) return null; throw e; }
+    },
     // Liegt die Mail schon in der Ablage? Eintrag aus FP-Wissen/ablage, sonst nichts.
     ladeAblage: (mail) => ablage().schonAbgelegt(mail),
     // Urteil über die Bewertung: korrekturen/<JJJJ-MM des Eingangs>/<Kurz-Hash>_<Kürzel>.json, je Mail und Person

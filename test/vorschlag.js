@@ -243,8 +243,37 @@
     return aus;
   }
 
+  /*
+    Eine Zeile zum Stand des Helfers, aus stand/helfer.json im Speicher FP-Wissen.
+    Rückgabe { art: '' | 'hinweis' | 'warn', text } oder null, wenn es keinen Stand gibt.
+    Stille gilt nur in der Arbeitszeit als Warnung (Montag bis Freitag, 7 bis 18 Uhr), sonst läuft am Helfer-PC
+    ohnehin kein Outlook.
+  */
+  function helferZeile(stand, jetzt) {
+    if (!stand || !stand.gemeldet) return null;
+    const gemeldet = new Date(stand.gemeldet), lauf = new Date(stand.letzterLauf || stand.gemeldet);
+    if (isNaN(gemeldet)) return null;
+    const z2 = (n) => String(n).padStart(2, '0');
+    const zeit = (d) => (d.toDateString() === jetzt.toDateString() ? '' : z2(d.getDate()) + '.' + z2(d.getMonth() + 1) + '. ') + z2(d.getHours()) + ':' + z2(d.getMinutes());
+    const arbeitszeit = jetzt.getDay() >= 1 && jetzt.getDay() <= 5 && jetzt.getHours() >= 7 && jetzt.getHours() < 18;
+    const still = (jetzt - gemeldet) / 60000;
+    if (still > 30 && arbeitszeit) return { art: 'warn', text: 'Der Helfer meldet sich seit ' + zeit(gemeldet) + ' nicht mehr. Neue Mails werden nicht bewertet.' };
+    const rc = String(stand.letzteRueckgabe || ''), marke = String(stand.letzteMarke || '').replace(/[^A-Za-z0-9 ._-]/g, '').slice(0, 80);
+    if (rc === '2' || marke.startsWith('FP-ANMELDUNG-CLAUDE') || marke.startsWith('FP-CLAUDE-FEHLT')) return { art: 'warn', text: 'Der Helfer kann nicht bewerten: Claude Code ist am Helfer-PC abgemeldet. Dort einmal „claude.exe auth login“ ausführen.' };
+    if (rc === '3') return { art: 'warn', text: 'Der Helfer kann nichts hochladen: Am Helfer-PC fehlt die Anmeldung an SharePoint.' };
+    if (rc === '4' || marke.startsWith('FP-KONTINGENT')) return { art: 'hinweis', text: 'Der Helfer pausiert: Das Kontingent des Tarifs ist erreicht. Er versucht es von allein wieder.' };
+    if (rc === '5') return { art: 'hinweis', text: 'Der Helfer pausiert: Claude war eben nicht erreichbar. Er versucht es von allein wieder.' };
+    if (rc && rc !== '0') return { art: 'warn', text: 'Der letzte Lauf des Helfers brach ab' + (marke ? ' (' + marke + ')' : '') + '. Er versucht es von allein wieder.' };
+    if (stand.wartetAufOutlook) return { art: 'hinweis', text: 'Der Helfer wartet: Am Helfer-PC ist Outlook nicht offen.' };
+    const grenze = Number(stand.hoechstensProTag) || 0;
+    if (grenze > 0 && Number(stand.bewertetHeute) >= grenze) return { art: 'hinweis', text: 'Der Helfer hat seine Tagesgrenze von ' + grenze + ' Mails erreicht. Weiter geht es morgen.' };
+    return { art: '', text: 'Helfer zuletzt ' + zeit(isNaN(lauf) ? gemeldet : lauf) };
+  }
+
   function erzeuge(container, dienste) {
     let lauf = 0, reg = null, letzteMail = null, trotzdem = null, urteil = null, abgelegt = null;
+    let helfer = null, helferGeladen = 0;
+    const jetzt = () => (dienste.jetzt ? dienste.jetzt() : new Date());
 
     const meldung = (text, art) => h('div', { class: 'vs-meldung' + (art ? ' vs-' + art : '') }, text);
 
@@ -258,6 +287,26 @@
       const text = 'Abgelegt am ' + deDatum(String(e.wann || '').slice(0, 10)) + (e.von ? ' von ' + e.von : '') + ' ' + ort + ': ' + e.datei + '.';
       container.insertBefore(h('div', { class: 'vs-meldung vs-abgelegt' }, text), container.firstChild);
     }
+    // Stand des Helfers: Warnung oben im Reiter, sonst eine kleine Zeile in der Fußzeile
+    function helferZeigen() {
+      container.querySelectorAll('.vs-helfer').forEach((x) => x.remove());
+      const z = helferZeile(helfer, jetzt());
+      if (!z) return;
+      if (z.art) { container.insertBefore(h('div', { class: 'vs-meldung vs-helfer ' + (z.art === 'warn' ? 'vs-fehler' : 'vs-hinweis') }, z.text), container.firstChild); return; }
+      const fuss = container.querySelector('.vs-fuss');
+      if (fuss) fuss.appendChild(h('span', { class: 'vs-helfer' }, z.text));
+    }
+    async function helferLaden(hier) {
+      if (!dienste.ladeHelferStand) return;
+      const uhr = jetzt().getTime();
+      if (Math.abs(uhr - helferGeladen) > 120000) {          // höchstens alle zwei Minuten neu holen
+        let st = null;
+        try { st = await dienste.ladeHelferStand(); } catch (x) { st = null; }
+        helfer = st; helferGeladen = uhr;
+      }
+      if (hier === lauf) helferZeigen();
+    }
+
     async function ablageLaden(mail, hier) {
       if (!dienste.ladeAblage || !mail) return;
       let e = null;
@@ -440,6 +489,7 @@
       // Probebetrieb gilt, solange das Register ihn nicht ausdrücklich abschaltet
       if (!reg || reg.probebetrieb !== false) container.appendChild(h('div', { class: 'vs-offen' }, 'Probebetrieb: Am Postfach ändert sich nichts. Entwürfe öffnen sich nur, Ablegen legt eine Kopie in den Testordner, Zuweisen wird vermerkt.'));
       ablageZeigen();
+      helferZeigen();
     }
 
     /*
@@ -474,6 +524,7 @@
       abgelegt = null;
       male(zusammenfuehren(regeln, null, reg));
       ablageLaden(mail, hier);        // läuft nebenher, der Hinweis erscheint, sobald der Eintrag da ist
+      helferLaden(hier);
       let gespeichert = null;
       try { gespeichert = await dienste.ladeVorschlag(mail); } catch (e) { gespeichert = null; }
       if (hier !== lauf || !gespeichert) return;
@@ -532,5 +583,5 @@
     return { zeige, neuLaden: () => zeige(letzteMail) };
   }
 
-  wurzel.FPVorschlag = { erzeuge, zusammenfuehren, beschriftung, urteilOrt, urteilSatz, auswerten, monate };
+  wurzel.FPVorschlag = { erzeuge, zusammenfuehren, beschriftung, urteilOrt, urteilSatz, auswerten, monate, helferZeile };
 })(window);

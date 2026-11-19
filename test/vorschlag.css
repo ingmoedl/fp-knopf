@@ -70,3 +70,6 @@ body.vor .formular, body.vor #schon { display: none !important; }
 
 /* Hinweis: Die Mail ist schon abgelegt */
 .vs-meldung.vs-abgelegt { background: #e8f3e8; border: 1px solid #b7d7b7; color: var(--ink); overflow-wrap: anywhere; }
+
+/* Stand des Helfers */
+.vs-fuss .vs-helfer { flex-basis: 100%; color: var(--muted); }
