@@ -92,6 +92,21 @@
     return { nrn, bereich: bereiche.join('; ') };
   }
 
+  /* Nummern, mit denen der Name einer Mappe beginnt: „660 …“, „660_…“, „660_279 …“, auch nach „FP_“.
+     Das Team stellt die Gebäudenummer voran. Steht dort eine Nummer aus dem Register, gilt die Zuordnung als sicher.
+     Gesehen an den echten FP-Aufgaben am 19.11.2026. */
+  function nummernVorn(titel, idx) {
+    const m = /^\s*(?:FP[_\s]+)?(\d{2,4}[a-z]?(?:\.[\dx])?(?:\s?[_\/+&,]\s?\d{2,4}[a-z]?(?:\.[\dx])?)*)(?=$|[\s_:.,;–-])/i.exec(String(titel || ''));
+    if (!m) return [];
+    const aus = [];
+    for (const t of m[1].split(/\s?[_\/+&,]\s?/)) {
+      const k = t.toLowerCase();
+      const nr = idx.get(k) || idx.get(k.replace(/\.[\dx]$/, ''));
+      if (nr && !aus.includes(nr)) aus.push(nr);
+    }
+    return aus;
+  }
+
   /* Eine Zeile aus SharePoint in die Form der Karte bringen. */
   function aufgabeAusZeile(x, team, idx, register, gebaeudeAusText, url) {
     const p = Array.isArray(x.FPBearbeiter) ? x.FPBearbeiter : [];
@@ -111,10 +126,15 @@
       // Solange die Spalte leer ist: Nummer aus dem Namen der Mappe
       let fund = [];
       try { fund = gebaeudeAusText(titel, register) || []; } catch (e) { fund = []; }
+      const vorn = nummernVorn(titel, idx);
       for (const f of fund) {
         const nr = idx.get(String(f.nr).toLowerCase());
-        if (nr && !gebaeude.some((g) => g.nr === nr)) gebaeude.push({ nr, ampel: f.ampel === 'gruen' ? 'gruen' : 'gelb', grund: 'Aus dem Namen der Mappe. ' + String(f.grund || ''), quelle: 'name' });
+        if (!nr || gebaeude.some((g) => g.nr === nr)) continue;
+        if (vorn.includes(nr)) gebaeude.push({ nr, ampel: 'gruen', grund: 'Die Nummer steht am Anfang des Mappennamens.', quelle: 'name' });
+        else gebaeude.push({ nr, ampel: f.ampel === 'gruen' ? 'gruen' : 'gelb', grund: 'Aus dem Namen der Mappe. ' + String(f.grund || ''), quelle: 'name' });
       }
+      // Reihenfolge wie im Namen: die Nummern vom Anfang zuerst
+      gebaeude.sort((a, b) => (vorn.indexOf(a.nr) < 0 ? 99 : vorn.indexOf(a.nr)) - (vorn.indexOf(b.nr) < 0 ? 99 : vorn.indexOf(b.nr)));
     }
     return {
       id: x.Id, name, titel, rel: String(x.FileRef || ''), url: url(String(x.FileRef || '')),
@@ -227,5 +247,5 @@
     return { grundlagen, team, ich, aufgaben, index, gebaeude, vergessen: () => merke.clear() };
   }
 
-  wurzel.FPKarteDaten = { erzeugen, teamPruefen, gebaeudeListe, nummernIndex, spalteLesen, aufgabeAusZeile, doppelteZusammenlegen, gebaeudeDatei };
+  wurzel.FPKarteDaten = { erzeugen, teamPruefen, gebaeudeListe, nummernIndex, spalteLesen, nummernVorn, aufgabeAusZeile, doppelteZusammenlegen, gebaeudeDatei };
 })(typeof window !== 'undefined' ? window : this);
