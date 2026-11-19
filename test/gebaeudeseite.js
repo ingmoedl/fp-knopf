@@ -6,10 +6,12 @@
 
   Alle Texte aus Aufgaben und Mails sind fremder Inhalt. Sie werden nur als Text eingesetzt, nie als HTML.
 
-  FPGebaeudeseite.zeichnen(root, modell, { beiFilter(f), beiZu(), behalten })
-    modell: { art: 'gebaeude' | 'ohne', g, sicht (aus FPKarteAuswertung.seite), filter, ich, team, zaehler,
+  FPGebaeudeseite.zeichnen(root, modell, { beiFilter(f), beiFirmen(liste), beiZu(), behalten })
+    modell: { art: 'gebaeude' | 'ohne', g, sicht (aus FPKarteAuswertung.seite), filter, firmen, ich, team, zaehler,
               laedt, datei, fehler, fehlerAufgaben, fussnote, aufDerKarte }
   FPGebaeudeseite.filterLeiste(team, ich, filter, zaehler, beiFilter) baut die Tasten für den Personenfilter.
+  FPGebaeudeseite.firmenWahl(liste, gewaehlt, beiWahl, offen) baut die Firmenwahl für die Leiste: eine Taste,
+    darunter je Firma eine Zeile zum Anhaken. liste kommt aus FPKarteAuswertung.firmenListe.
 */
 (function (wurzel) {
   'use strict';
@@ -55,6 +57,42 @@
     if (ich && (ich.kuerzel || ich.mail)) el.append(taste('meine', 'Meine'));
     if (team.length) el.append(h('span', { class: 'trenner' }));
     for (const b of team) el.append(taste(b.kuerzel, b.kuerzel, b.hinter, 'Aufgaben von ' + b.name));
+    return el;
+  }
+
+  const firmaName = (name) => name || 'Ohne Firma';
+  // Nimmt eine Firma in die Auswahl oder heraus. Die Reihenfolge folgt der Liste, nicht der Klickfolge.
+  function firmaUmschalten(gewaehlt, name, reihenfolge) {
+    const neu = gewaehlt.includes(name) ? gewaehlt.filter((x) => x !== name) : gewaehlt.concat(name);
+    return reihenfolge.filter((x) => neu.includes(x)).concat(neu.filter((x) => !reihenfolge.includes(x)));
+  }
+
+  function firmenWahl(liste, gewaehlt, beiWahl, offen) {
+    gewaehlt = gewaehlt || [];
+    const namen = liste.map((f) => f.name);
+    const el = h('details', { class: 'firmen' + (gewaehlt.length ? ' aktiv' : ''), open: !!offen });
+    el.append(h('summary', { 'aria-label': 'Aufgaben nach Firma' },
+      h('span', { text: 'Firmen' }), gewaehlt.length ? h('span', { class: 'zahl', text: String(gewaehlt.length) }) : null));
+    const feld = h('div', { class: 'firmen-feld', role: 'group', 'aria-label': 'Firmen wählen' });
+    feld.append(h('button', { type: 'button', class: 'alle', disabled: !gewaehlt.length, onclick: () => beiWahl([]) }, 'Alle Firmen'));
+    for (const f of liste) {
+      const haken = h('input', { type: 'checkbox', checked: gewaehlt.includes(f.name), onchange: () => beiWahl(firmaUmschalten(gewaehlt, f.name, namen)) });
+      feld.append(h('label', null, haken, h('span', { class: 'name', text: firmaName(f.name) }), h('span', { class: 'zahl', text: String(f.anzahl) })));
+    }
+    if (!liste.length) feld.append(h('div', { class: 'leer', text: 'Keine Aufgabe mit Firma.' }));
+    el.append(feld);
+    return el;
+  }
+
+  /* Firmen am Gebäude als Marken. Ein Klick nimmt die Firma in die Auswahl der ganzen Karte oder heraus. */
+  function firmenMarken(liste, gewaehlt, beiWahl) {
+    gewaehlt = gewaehlt || [];
+    const namen = liste.map((f) => f.name);
+    const el = h('div', { class: 'gs-firmen', role: 'group', 'aria-label': 'Firmen an diesem Gebäude' });
+    for (const f of liste) {
+      el.append(h('button', { type: 'button', 'aria-pressed': String(gewaehlt.includes(f.name)), onclick: () => beiWahl(firmaUmschalten(gewaehlt, f.name, namen)) },
+        h('span', { text: firmaName(f.name) }), h('i', { text: String(f.anzahl) })));
+    }
     return el;
   }
 
@@ -132,6 +170,8 @@
 
     const innen = h('div', { class: 'gs-innen' });
     innen.append(filterLeiste(m.team, m.ich, m.filter, m.zaehler, (f) => o.beiFilter && o.beiFilter(f)));
+    const firmenGewaehlt = m.firmen || [];
+    if (s.firmen && s.firmen.length) innen.append(firmenMarken(s.firmen, firmenGewaehlt, (neu) => o.beiFirmen && o.beiFirmen(neu)));
 
     /* Zahlen oben: das Lagebild in drei Feldern, zugleich Sprungmarken */
     const sprung = (id) => () => { const e = root.querySelector('#' + id); if (e) e.scrollIntoView({ block: 'start', behavior: 'smooth' }); };
@@ -149,7 +189,7 @@
     innen.append(zahlen);
 
     /* Aufgaben */
-    const gefiltert = m.filter && m.filter !== 'alle';
+    const gefiltert = (m.filter && m.filter !== 'alle') || firmenGewaehlt.length > 0;
     const anzahl = gefiltert && s.aufgabenAlle !== s.aufgaben.length ? `${s.aufgaben.length} von ${s.aufgabenAlle}` : s.aufgaben.length || '';
     let aufgabenInhalt;
     if (m.fehlerAufgaben) aufgabenInhalt = h('div', { class: 'gs-leer warn', text: 'Die Aufgaben konnten nicht geladen werden: ' + m.fehlerAufgaben });
@@ -220,5 +260,5 @@
     root.scrollTop = o.behalten ? oben : 0;
   }
 
-  wurzel.FPGebaeudeseite = { zeichnen, filterLeiste, h };
+  wurzel.FPGebaeudeseite = { zeichnen, filterLeiste, firmenWahl, h };
 })(typeof window !== 'undefined' ? window : this);

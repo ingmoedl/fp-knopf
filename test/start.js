@@ -38,7 +38,7 @@
   const eigeneParteien = Q.eigeneParteien || (Array.isArray(grund.register.eigene_parteien) ? grund.register.eigene_parteien : []);
 
   const Z = {
-    filter: 'alle', wahl: null, heute: Q.heute || A.heuteIso(), team: [], ich: null,
+    filter: 'alle', firmen: [], firmenOffen: false, wahl: null, heute: Q.heute || A.heuteIso(), team: [], ich: null,
     aufgaben: [], fehlerAufgaben: '', index: new Map(), indexStand: '', indexFehlt: false,
     bild: { gebaeude: new Map(), ohne: { aufgaben: 0 } }, dateien: new Map(), dateiFehler: new Map(),
   };
@@ -60,9 +60,13 @@
 
   function neuRechnen() {
     if (!filterGueltig(Z.filter)) Z.filter = 'alle';
-    Z.bild = A.lagebild(grund.gebaeude, Z.aufgaben, Z.index, Z.filter, Z.ich, Z.heute);
+    // Gemerkte Firmen, die es in den Aufgaben nicht mehr gibt, fallen heraus. Solange die Aufgaben fehlen, bleibt die Auswahl.
+    const alleFirmen = A.firmenListe(Z.aufgaben, 'alle', Z.ich).map((f) => f.name);
+    if (Z.aufgaben.length) Z.firmen = Z.firmen.filter((f) => alleFirmen.includes(f));
+    Z.bild = A.lagebild(grund.gebaeude, Z.aufgaben, Z.index, Z.filter, Z.ich, Z.heute, Z.firmen);
     karte.zustand(Z.bild.gebaeude);
-    $('#filter').replaceChildren(GS.filterLeiste(Z.team, Z.ich, Z.filter, A.zaehler(Z.aufgaben, Z.team, Z.ich), filterSetzen));
+    $('#filter').replaceChildren(GS.filterLeiste(Z.team, Z.ich, Z.filter, A.zaehler(A.nachFirmen(Z.aufgaben, Z.firmen), Z.team, Z.ich), filterSetzen));
+    firmenZeigen();
     abseitsZeigen();
     standZeigen();
     if (Z.wahl) seiteZeigen(true);
@@ -71,6 +75,21 @@
   function filterSetzen(f) {
     if (!filterGueltig(f) || f === Z.filter) return;
     Z.filter = f; schreib('fpk-filter', f);
+    neuRechnen();
+  }
+
+  /* Firmenwahl in der Leiste. Die Zahlen je Firma folgen dem Personenfilter. Offen bleibt sie über das Neuzeichnen hinweg. */
+  function firmenZeigen() {
+    const liste = A.firmenListe(Z.aufgaben, Z.filter, Z.ich);
+    for (const f of Z.firmen) if (!liste.some((x) => x.name === f)) liste.push({ name: f, anzahl: 0 });
+    const el = GS.firmenWahl(liste, Z.firmen, firmenSetzen, Z.firmenOffen);
+    el.addEventListener('toggle', () => { Z.firmenOffen = el.open; });
+    $('#firmen').replaceChildren(el);
+  }
+
+  function firmenSetzen(liste) {
+    Z.firmen = Array.isArray(liste) ? liste.map(String) : [];
+    schreib('fpk-firmen', JSON.stringify(Z.firmen));
     neuRechnen();
   }
 
@@ -107,11 +126,11 @@
     const amGebaeude = Z.aufgaben.filter((a) => (ohne ? !a.gebaeude.length : a.gebaeude.some((g) => g.nr === nr)));
     GS.zeichnen(gs, {
       art: ohne ? 'ohne' : 'gebaeude', g: ohne ? null : grund.gebaeude.get(key),
-      sicht: A.seite(nr, Z.aufgaben, datei, { filter: Z.filter, ich: Z.ich, heute: Z.heute, eigeneParteien }),
-      filter: Z.filter, ich: Z.ich, team: Z.team, zaehler: A.zaehler(amGebaeude, Z.team, Z.ich),
+      sicht: A.seite(nr, Z.aufgaben, datei, { filter: Z.filter, ich: Z.ich, heute: Z.heute, eigeneParteien, firmen: Z.firmen }),
+      filter: Z.filter, firmen: Z.firmen, ich: Z.ich, team: Z.team, zaehler: A.zaehler(A.nachFirmen(amGebaeude, Z.firmen), Z.team, Z.ich),
       laedt: !ohne && !datei && !Z.dateiFehler.has(key), datei, fehler: Z.dateiFehler.get(key) || '', fehlerAufgaben: Z.fehlerAufgaben,
       fussnote: Q.fussnote || '', aufDerKarte: !ohne && karte.hat(key),
-    }, { beiFilter: filterSetzen, beiZu: () => schliessen(), behalten });
+    }, { beiFilter: filterSetzen, beiFirmen: firmenSetzen, beiZu: () => schliessen(), behalten });
   }
 
   function raender() { karte.rand({ r: breit() && Z.wahl ? seiteEl.offsetWidth : 0, o: breit() ? 56 : 104, u: breit() ? 0 : 56 }); }
@@ -195,7 +214,12 @@
   $('#w-minus').onclick = () => karte.zoom(1 / 1.6);
   $('#w-ansicht').onclick = () => karte.ansichtWechseln();
   $('#w-start').onclick = () => karte.start();
-  window.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && Z.wahl) schliessen(); });
+  window.addEventListener('keydown', (ev) => {
+    if (ev.key !== 'Escape') return;
+    if (Z.firmenOffen) { Z.firmenOffen = false; firmenZeigen(); } else if (Z.wahl) schliessen();
+  });
+  // Klick neben die Firmenwahl schließt sie
+  document.addEventListener('pointerdown', (ev) => { if (Z.firmenOffen && !$('#firmen').contains(ev.target)) { Z.firmenOffen = false; firmenZeigen(); } });
   const platzhalter = () => { suche.placeholder = breit() ? 'Gebäude suchen' : 'Gebäude'; };
   window.addEventListener('resize', () => { raender(); platzhalter(); });
   platzhalter();
@@ -205,6 +229,7 @@
   neuRechnen();
   try { [Z.team, Z.ich] = await Promise.all([daten.team(), daten.ich()]); } catch (e) { Z.team = []; Z.ich = null; }
   const gemerkt = lies('fpk-filter'); if (gemerkt && filterGueltig(gemerkt)) Z.filter = gemerkt;
+  try { const f = JSON.parse(lies('fpk-firmen') || '[]'); if (Array.isArray(f)) Z.firmen = f.filter((x) => typeof x === 'string'); } catch (e) { Z.firmen = []; }
   const [a, i] = await Promise.allSettled([daten.aufgaben(), daten.index()]);
   if (a.status === 'fulfilled') Z.aufgaben = a.value.liste; else Z.fehlerAufgaben = msg(a.reason);
   if (i.status === 'fulfilled') { Z.index = i.value.gebaeude; Z.indexStand = i.value.stand; Z.indexFehlt = i.value.fehlt; } else Z.indexFehlt = true;

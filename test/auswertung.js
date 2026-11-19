@@ -5,7 +5,9 @@
   Gebäudeseite in welcher Reihenfolge zeigt. Prüfbar in werkzeuge/test_karte.html.
 
   Filter: 'alle', 'meine' (angemeldete Person) oder das Kürzel eines Teammitglieds.
-  Der Filter wirkt auf die Aufgaben. Termine und offene Punkte gehören zum Gebäude und bleiben stehen.
+  Firmen: Liste gewählter Firmen (Spalte Firma der Aufgabe), leer heißt alle. '' steht für Aufgaben ohne Firma.
+  Beide Filter gelten zusammen und wirken auf die Aufgaben. Termine und offene Punkte gehören zum Gebäude
+  und bleiben stehen.
 */
 (function (wurzel) {
   'use strict';
@@ -31,7 +33,11 @@
     return `in ${tage} Tagen`;
   }
 
-  function passt(a, filter, ich) {
+  const hatFirma = (a, firmen) => !firmen || !firmen.length || firmen.includes(a.firma || '');
+  const nachFirmen = (aufgaben, firmen) => (firmen && firmen.length ? aufgaben.filter((a) => hatFirma(a, firmen)) : aufgaben);
+
+  function passt(a, filter, ich, firmen) {
+    if (!hatFirma(a, firmen)) return false;
     if (!filter || filter === 'alle') return true;
     if (filter === 'meine') return !!ich && ((!!ich.kuerzel && a.kuerzel.includes(ich.kuerzel)) || a.leute.includes(ich.mail));
     return a.kuerzel.includes(filter);
@@ -44,15 +50,28 @@
     return z;
   }
 
-  /* Was auf der Karte hervortritt. Mit Personenfilter zählen nur deren Aufgaben, ohne Filter auch die
-     offenen Punkte und kommenden Fristen aus den Mails. */
-  function lagebild(gebaeude, aufgaben, index, filter, ich, heute) {
+  /* Firmen mit der Anzahl ihrer Aufgaben, für die Firmenwahl. Die Zahlen folgen dem Personenfilter.
+     Reihenfolge: meiste Aufgaben zuerst, bei Gleichstand nach Name, Aufgaben ohne Firma zuletzt. */
+  function firmenListe(aufgaben, filter, ich) {
+    const zahl = new Map();
+    for (const a of aufgaben) {
+      if (!passt(a, filter, ich)) continue;
+      const f = a.firma || '';
+      zahl.set(f, (zahl.get(f) || 0) + 1);
+    }
+    return [...zahl].map(([name, anzahl]) => ({ name, anzahl }))
+      .sort((x, y) => (!x.name - !y.name) || (y.anzahl - x.anzahl) || x.name.localeCompare(y.name, 'de'));
+  }
+
+  /* Was auf der Karte hervortritt. Mit Personen- oder Firmenfilter zählen nur die passenden Aufgaben,
+     ohne Filter auch die offenen Punkte und kommenden Fristen aus den Mails. */
+  function lagebild(gebaeude, aufgaben, index, filter, ich, heute, firmen) {
     const aus = new Map();
     const neu = () => ({ aufgaben: 0, ueberfaellig: 0, punkte: 0, frist: '', relevant: false, dringend: false });
     for (const nr of gebaeude.keys()) aus.set(nr, neu());
     const ohne = { aufgaben: 0, ueberfaellig: 0 };
     for (const a of aufgaben) {
-      if (!passt(a, filter, ich)) continue;
+      if (!passt(a, filter, ich, firmen)) continue;
       const t = a.faellig ? tageBis(a.faellig, heute) : null;
       const ueber = t !== null && t <= 0;
       if (!a.gebaeude.length) { ohne.aufgaben++; if (ueber) ohne.ueberfaellig++; continue; }
@@ -61,7 +80,7 @@
         e.aufgaben++; if (ueber) e.ueberfaellig++;
       }
     }
-    const alle = !filter || filter === 'alle';
+    const alle = (!filter || filter === 'alle') && !(firmen && firmen.length);
     for (const [nr, e] of aus) {
       const i = index && index.get(nr);
       if (i && alle) { e.punkte = i.offene_punkte; e.frist = i.naechste_frist && tageBis(i.naechste_frist, heute) >= 0 ? i.naechste_frist : ''; }
@@ -82,7 +101,7 @@
     Inhalt der Gebäudeseite.
       nr       Gebäudenummer, oder null für die Aufgaben ohne Gebäude
       datei    Gebäudedatei aus der Ladeschicht (oder null)
-      o        { filter, ich, heute, eigeneParteien }
+      o        { filter, ich, heute, eigeneParteien, firmen }
     Reihenfolge:
       Aufgaben   nach Fälligkeit, Überfälliges oben, ohne Termin unten. Bei gleichem Tag die eigenen zuerst.
       Termine    überfällige Fristen, dann alles ab heute nach Datum. Vergangene Termine getrennt.
@@ -92,7 +111,7 @@
   function seite(nr, aufgaben, datei, o) {
     const heute = o.heute || heuteIso();
     const zumGebaeude = aufgaben.filter((a) => (nr === null ? !a.gebaeude.length : a.gebaeude.some((g) => g.nr === nr)));
-    const sicht = zumGebaeude.filter((a) => passt(a, o.filter, o.ich)).sort(nachFaelligkeit(o.ich)).map((a) => {
+    const sicht = zumGebaeude.filter((a) => passt(a, o.filter, o.ich, o.firmen)).sort(nachFaelligkeit(o.ich)).map((a) => {
       const tage = a.faellig ? tageBis(a.faellig, heute) : null;
       const z = nr === null ? null : a.gebaeude.find((g) => g.nr === nr);
       return Object.assign({}, a, { tage, ueberfaellig: tage !== null && tage < 0, heute: tage === 0, meine: passt(a, 'meine', o.ich), zuordnung: z });
@@ -123,6 +142,7 @@
 
     return {
       aufgaben: sicht, aufgabenAlle: zumGebaeude.length,
+      firmen: firmenListe(zumGebaeude, o.filter, o.ich),
       termine: ueber.concat(kommend), vergangen,
       punkte, punkteAnzahl,
       verlauf,
@@ -134,5 +154,5 @@
     };
   }
 
-  wurzel.FPKarteAuswertung = { passt, zaehler, lagebild, seite, tageBis, tagKurz, tagOhneWt, uhrzeit, standText, abstand, heuteIso };
+  wurzel.FPKarteAuswertung = { passt, nachFirmen, firmenListe, zaehler, lagebild, seite, tageBis, tagKurz, tagOhneWt, uhrzeit, standText, abstand, heuteIso };
 })(typeof window !== 'undefined' ? window : this);

@@ -77,6 +77,24 @@ button:focus-visible, a:focus-visible, input:focus-visible, summary:focus-visibl
 .filter .trenner { flex: none; width: 1px; margin: 6px 4px; background: var(--linie); }
 .filter .punkt { flex: none; width: 8px; height: 8px; border-radius: 50%; }
 
+/* Firmenwahl: eine Taste in der Leiste, darunter die Firmen zum Anhaken */
+#firmen { position: relative; flex: none; }
+.firmen > summary { list-style: none; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; font: 600 13px/1 var(--font-text); color: var(--text-2); padding: 11px 14px; border: 1px solid var(--linie); border-radius: 999px; background: color-mix(in srgb, var(--flaeche) 90%, transparent); backdrop-filter: blur(8px); white-space: nowrap; user-select: none; }
+.firmen > summary::-webkit-details-marker { display: none; }
+.firmen > summary:hover, .firmen[open] > summary { color: var(--text); border-color: var(--stahl); }
+.firmen.aktiv > summary { color: var(--text); box-shadow: inset 0 0 0 1px var(--stahl); }
+.firmen .zahl { font: 500 11px/1 var(--font-daten); color: var(--text-3); }
+.firmen.aktiv > summary .zahl { color: var(--bernstein); }
+.firmen-feld { position: absolute; right: 0; top: calc(100% + 6px); z-index: 20; width: min(290px, calc(100vw - 32px)); max-height: min(60vh, 420px); overflow-y: auto; padding: 4px; display: grid; gap: 1px; background: var(--flaeche); border: 1px solid var(--linie); border-radius: var(--r); box-shadow: 0 12px 32px rgba(0, 0, 0, .5); }
+.firmen-feld label { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 9px; align-items: center; padding: 8px 10px; border-radius: 7px; cursor: pointer; font: 500 13px/1.25 var(--font-text); color: var(--text); }
+.firmen-feld label:hover { background: var(--flaeche-2); }
+.firmen-feld input { accent-color: var(--bernstein); width: 15px; height: 15px; margin: 0; }
+.firmen-feld .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.firmen-feld .alle { text-align: left; border: 0; background: transparent; color: var(--stahl); font: 600 12.5px/1 var(--font-text); padding: 9px 10px; border-radius: 7px; cursor: pointer; }
+.firmen-feld .alle:disabled { color: var(--text-3); cursor: default; }
+.firmen-feld .alle:not(:disabled):hover { background: var(--flaeche-2); }
+.firmen-feld .leer { padding: 10px; color: var(--text-2); font: 400 12.5px/1.3 var(--font-text); }
+
 .suche { position: relative; flex: 0 1 172px; min-width: 120px; }
 .suche input { width: 100%; color: var(--text); font: 500 13px/1 var(--font-text); padding: 10px 14px; border: 1px solid var(--linie); border-radius: 999px; outline: none; background: color-mix(in srgb, var(--flaeche) 90%, transparent); backdrop-filter: blur(8px); }
 .suche input::placeholder { color: var(--text-3); }
@@ -120,6 +138,14 @@ button:focus-visible, a:focus-visible, input:focus-visible, summary:focus-visibl
 .gs-chips { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; margin-top: 3px; }
 .chip { font: 500 11.5px/1.2 var(--font-text); padding: 4px 8px; border-radius: 6px; background: var(--flaeche-2); color: var(--text-2); border: 1px solid var(--linie); }
 .chip.warn { color: var(--bernstein); border-color: color-mix(in srgb, var(--bernstein) 40%, var(--linie)); }
+
+/* Firmen am Gebäude: Marken unter dem Personenfilter */
+.gs-firmen { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.gs-firmen button { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--linie); background: transparent; color: var(--text-2); font: 500 12px/1 var(--font-text); padding: 6px 9px; border-radius: 999px; cursor: pointer; }
+.gs-firmen button:hover { color: var(--text); border-color: var(--stahl); }
+.gs-firmen button[aria-pressed="true"] { background: var(--flaeche-2); color: var(--text); border-color: var(--stahl); }
+.gs-firmen i { font: 500 11px/1 var(--font-daten); font-style: normal; color: var(--text-3); }
+.gs-firmen button[aria-pressed="true"] i { color: var(--bernstein); }
 
 .gs-innen { display: grid; gap: 22px; padding: 14px 20px 0; }
 .gs-innen > .filter { justify-self: start; backdrop-filter: none; background: var(--flaeche-2); }
@@ -190,6 +216,8 @@ a.gs-zeile:hover { background: color-mix(in srgb, var(--stahl) 7%, var(--flaeche
   .filter { flex: 0 1 auto; min-width: 0; }
   .filter button { padding: 8px 10px; font-size: 12.5px; }
   .suche { flex: 1 1 96px; min-width: 96px; max-width: 150px; }
+  .firmen > summary { padding: 9px 11px; font-size: 12.5px; }
+  .firmen-feld { position: fixed; left: 16px; right: 16px; top: 108px; width: auto; }
   .suche input { width: 100%; padding: 9px 12px; }
   .seite { width: 100%; border-left: 0; }
   .gs-kopf { grid-template-columns: auto 1fr; padding-left: 16px; padding-right: 16px; }
