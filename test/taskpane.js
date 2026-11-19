@@ -390,7 +390,33 @@ function vorschlagDienste() {
     },
     mappen: () => mappen.map((m) => m.name),
     aktion: vorschlagAktion,
+    // Urteil über die Bewertung: korrekturen/<JJJJ-MM des Eingangs>/<Kurz-Hash>_<Kürzel>.json, je Mail und Person
+    ladeUrteil: async (mail) => {
+      const kuerzel = (ich() || {}).kuerzel;
+      if (!kuerzel) return null;
+      const o = window.FPVorschlag.urteilOrt(mail, kuerzel, await kurzHash(mail.schluessel));
+      try { return await datei(`${CONFIG.wissenRel}/${o.ordner}/${o.name}`); }
+      catch (e) { if (e.status === 404) return null; throw e; }
+    },
+    urteilSpeichern,
   };
+}
+
+// Schreibt das Urteil nach FP-Wissen. Am Postfach ändert sich nichts. Ein neues Urteil derselben Person ersetzt
+// ihr altes, die Bibliothek führt Versionen.
+async function urteilSpeichern(mail, u) {
+  const o = window.FPVorschlag.urteilSatz(mail, u, (ich() || {}).kuerzel, await kurzHash(mail.schluessel), new Date());
+  const ordner = `${CONFIG.wissenRel}/${o.ordner}`;
+  const body = new TextEncoder().encode(JSON.stringify(o.satz, null, 1));
+  const ziel = `${CONFIG.web}/_api/web/GetFolderByServerRelativePath(decodedurl='${pfad(ordner)}')/Files/AddUsingPath(decodedurl='${pfad(o.name)}',overwrite=true)`;
+  try { await sp(ziel, { method: "POST", body }); }
+  catch (e) {
+    if (e.status !== 404) throw e;
+    // Den Ordner dieses Monats gibt es noch nicht
+    await sp(`${CONFIG.web}/_api/web/folders/AddUsingPath(DecodedUrl='${pfad(ordner)}',overwrite=false)`, { method: "POST" });
+    await sp(ziel, { method: "POST", body });
+  }
+  return "Urteil gespeichert.";
 }
 
 const entwurfHtml = (t) => html(t || "").replace(/\n/g, "<br>");

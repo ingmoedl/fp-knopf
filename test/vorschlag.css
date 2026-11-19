@@ -47,3 +47,15 @@ body.vor .formular, body.vor #schon { display: none !important; }
 
 .vs-fuss { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 12px; padding-top: 8px; border-top: 1px solid var(--line); font-size: 11.5px; color: var(--muted); }
 .vs-link { border: none; background: none; padding: 0; font: inherit; color: var(--accent); cursor: pointer; }
+
+/* Urteil über die Bewertung (Messung) */
+.vs-urteil { margin-top: 12px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--soft); }
+.vs-urteil-frage { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 6px; font-size: 12.5px; }
+.vs-urteil-wahl { display: inline-flex; gap: 4px; }
+.vs-urteil .vs-label { margin-top: 0; }
+.vs-wahl { flex: none; min-height: 28px; padding: 3px 10px; border: 1px solid var(--line); border-radius: 4px; background: #fff; color: var(--ink); font: inherit; font-size: 12.5px; white-space: nowrap; cursor: pointer; }
+.vs-wahl[aria-pressed="true"] { border-color: var(--accent); background: var(--accent); color: #fff; }
+.vs-wahl:focus-visible, .vs-urteil .vs-knopf:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.vs-urteil-hilfe { margin-top: 6px; font-size: 11.5px; line-height: 1.4; color: var(--muted); }
+.vs-urteil-fuss { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.vs-urteil-status { font-size: 12px; color: var(--muted); }

@@ -140,8 +140,37 @@
     }
   }
 
+  /*
+    Urteil des Menschen über die Bewertung: Datensatz und Ablageort im Speicher FP-Wissen.
+    Ein Urteil je Mail und Person, im Ordner des Eingangsmonats wie der Vorschlag selbst.
+    hash: Kurz-Hash der Message-ID. Betreff, Namen und Mailtext gehören nicht in den Datensatz.
+  */
+  const URTEILE = ['richtig', 'brauchbar', 'falsch'];
+  function urteilOrt(mail, kuerzel, hash) {
+    const k = String(kuerzel || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (!k) throw new Error('Dein Kürzel ist nicht bekannt. Ohne Kürzel wird kein Urteil gespeichert.');
+    if (!/^[0-9a-f]{20}$/.test(String(hash))) throw new Error('Die Kennung der Mail fehlt.');
+    const d = mail.eingang instanceof Date ? mail.eingang : new Date(mail.eingang);
+    if (isNaN(d)) throw new Error('Der Eingang der Mail ist nicht bekannt.');
+    return { ordner: 'korrekturen/' + d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'), name: hash + '_' + k + '.json', kuerzel: k, eingang: d };
+  }
+  function urteilSatz(mail, u, kuerzel, hash, jetzt) {
+    const ort = urteilOrt(mail, kuerzel, hash), k = ort.kuerzel, d = ort.eingang;
+    if (!u || typeof u.handlung !== 'boolean' || !URTEILE.includes(u.haupt)) throw new Error('Das Urteil ist unvollständig.');
+    const kurz = (x) => String(x || '').slice(0, 80);
+    return {
+      ordner: ort.ordner,
+      name: ort.name,
+      satz: {
+        schluessel: String(mail.schluessel || ''), eingang: d.toISOString(),
+        handlung: u.handlung, haupt: u.haupt, hauptArt: kurz(u.hauptArt), hauptAmpel: kurz(u.hauptAmpel),
+        bewertetWann: kurz(u.bewertetWann), modell: kurz(u.modell), von: k, wann: jetzt.toISOString(),
+      },
+    };
+  }
+
   function erzeuge(container, dienste) {
-    let lauf = 0, reg = null, letzteMail = null, trotzdem = null;
+    let lauf = 0, reg = null, letzteMail = null, trotzdem = null, urteil = null;
 
     const meldung = (text, art) => h('div', { class: 'vs-meldung' + (art ? ' vs-' + art : '') }, text);
 
@@ -211,8 +240,63 @@
       return zeile;
     }
 
+    /*
+      Urteil über die Bewertung, Grundlage der Messung: War eine Handlung nötig, und wie gut war der Hauptvorschlag?
+      Erscheint nur, wenn der Helfer die Mail bewertet hat. Gespeichert wird erst auf Klick.
+    */
+    function urteilBlock(m, mail) {
+      const wahl = { handlung: null, haupt: null };
+      let laeuft = false;
+      const status = h('span', { class: 'vs-urteil-status' });
+      const speichern = h('button', { class: 'vs-knopf', type: 'button' }, 'Urteil speichern');
+      const tasten = [];
+      const frage = (text, feld, werte) => h('div', { class: 'vs-urteil-frage' }, h('span', {}, text),
+        h('span', { class: 'vs-urteil-wahl' }, werte.map(([wert, wort]) => {
+          const b = h('button', { class: 'vs-wahl', type: 'button', 'aria-pressed': 'false' }, wort);
+          b.onclick = () => { wahl[feld] = wert; zeichne(); };
+          tasten.push({ b, feld, wert });
+          return b;
+        })));
+      function zeichne() {
+        for (const t of tasten) t.b.setAttribute('aria-pressed', wahl[t.feld] === t.wert ? 'true' : 'false');
+        speichern.disabled = laeuft || wahl.handlung === null || wahl.haupt === null;
+      }
+      speichern.onclick = async () => {
+        laeuft = true; zeichne();
+        status.textContent = 'Speichert …';
+        try {
+          const text = await dienste.urteilSpeichern(mail, {
+            handlung: wahl.handlung, haupt: wahl.haupt, hauptArt: m.haupt ? m.haupt.art : '', hauptAmpel: m.haupt ? m.haupt.ampel : '',
+            bewertetWann: (m.bewertet && m.bewertet.wann) || '', modell: (m.bewertet && m.bewertet.modell) || '',
+          });
+          status.textContent = text || 'Urteil gespeichert.';
+          speichern.textContent = 'Urteil ändern';
+        } catch (e) { status.textContent = 'Nicht gespeichert: ' + (e && e.message ? e.message : e); }
+        laeuft = false; zeichne();
+      };
+      const el = h('div', { class: 'vs-urteil' },
+        h('div', { class: 'vs-label' }, 'Dein Urteil'),
+        frage('War bei dieser Mail eine Handlung nötig?', 'handlung', [[true, 'Ja'], [false, 'Nein']]),
+        frage('Der Hauptvorschlag war', 'haupt', [['richtig', 'richtig'], ['brauchbar', 'brauchbar'], ['falsch', 'falsch']]),
+        h('div', { class: 'vs-urteil-hilfe' }, 'richtig: so hätte ich es gemacht. brauchbar: mit kleiner Änderung. falsch: führt in die Irre.'),
+        h('div', { class: 'vs-urteil-fuss' }, speichern, status));
+      zeichne();
+      return {
+        el,
+        // ein früher gespeichertes Urteil derselben Person
+        setze: (u) => {
+          if (!u || typeof u.handlung !== 'boolean' || !URTEILE.includes(u.haupt)) return;
+          wahl.handlung = u.handlung; wahl.haupt = u.haupt;
+          status.textContent = 'Dein Urteil vom ' + deDatum(String(u.wann || '').slice(0, 10));      // deDatum endet mit Punkt
+          speichern.textContent = 'Urteil ändern';
+          zeichne();
+        },
+      };
+    }
+
     function male(m) {
       container.textContent = '';
+      urteil = null;
       if (m.quelle === 'regeln') container.appendChild(meldung('Erste Einordnung nach festen Regeln. Die Bewertung folgt, sobald der Helfer die Mail gelesen hat.'));
       for (const n of m.neuere) {
         const wer = n.art === 'gesendet' ? 'aus dem eigenen Postfach gesendet' : 'von ' + n.von;
@@ -243,6 +327,8 @@
       }
       for (const t of m.vermerke) container.appendChild(meldung('Prüfung: ' + t, 'hinweis'));
       if (m.offen.length) container.appendChild(h('div', { class: 'vs-offen' }, 'Das sagen die Regeln nicht: ' + m.offen.join(', ') + '.'));
+
+      if (m.bewertet && dienste.urteilSpeichern && letzteMail) { urteil = urteilBlock(m, letzteMail); container.appendChild(urteil.el); }
 
       const fuss = h('div', { class: 'vs-fuss' });
       if (m.bewertet) {
@@ -290,10 +376,17 @@
       try { gespeichert = await dienste.ladeVorschlag(mail); } catch (e) { gespeichert = null; }
       if (hier !== lauf || !gespeichert) return;
       male(zusammenfuehren(regeln, gespeichert, reg));
+      // Hat diese Person die Mail schon beurteilt, steht ihr Urteil wieder da
+      const block = urteil;
+      if (block && dienste.ladeUrteil) {
+        let u = null;
+        try { u = await dienste.ladeUrteil(mail); } catch (e) { u = null; }
+        if (hier === lauf && u) block.setze(u);
+      }
     }
 
     return { zeige, neuLaden: () => zeige(letzteMail) };
   }
 
-  wurzel.FPVorschlag = { erzeuge, zusammenfuehren, beschriftung };
+  wurzel.FPVorschlag = { erzeuge, zusammenfuehren, beschriftung, urteilOrt, urteilSatz };
 })(window);
