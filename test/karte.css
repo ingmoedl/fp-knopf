@@ -167,6 +167,18 @@ button:focus-visible, a:focus-visible, input:focus-visible, summary:focus-visibl
 .gs-zeile.zwei { grid-template-columns: 82px minmax(0, 1fr); }
 .gs-zeile:first-child, .gs-punkt:first-child { border-top: 0; }
 a.gs-zeile:hover { background: color-mix(in srgb, var(--stahl) 7%, var(--flaeche-2)); }
+/* Aufgabenliste der Auswahl: Kopf je Gebäude */
+.gs-gruppenkopf { display: flex; align-items: baseline; gap: 8px; width: 100%; margin: 0; padding: 2px 0; border: 0; background: transparent; color: var(--text); text-align: left; font: 500 13px/1.3 var(--font-text); }
+button.gs-gruppenkopf { cursor: pointer; }
+.gs-gruppenkopf .nr { flex: none; font: 600 17px/1 var(--font-schild); font-stretch: 90%; color: #ffe2b8; }
+.gs-gruppenkopf .name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); }
+.gs-gruppenkopf .anz { flex: none; font: 500 11px/1 var(--font-daten); color: var(--text-3); }
+button.gs-gruppenkopf:hover .name { color: var(--text); }
+.listenknopf { flex: none; display: inline-flex; align-items: center; gap: 6px; font: 600 13px/1 var(--font-text); color: var(--text-2); padding: 11px 14px; border: 1px solid var(--linie); border-radius: 999px; background: color-mix(in srgb, var(--flaeche) 90%, transparent); backdrop-filter: blur(8px); white-space: nowrap; cursor: pointer; }
+.listenknopf:hover { color: var(--text); border-color: var(--stahl); }
+.listenknopf[aria-pressed="true"] { color: var(--text); box-shadow: inset 0 0 0 1px var(--stahl); }
+.listenknopf .zahl { font: 500 11px/1 var(--font-daten); color: var(--text-3); }
+.listenknopf[aria-pressed="true"] .zahl { color: var(--bernstein); }
 /* Aufgabe mit Bearbeitung: die Zeile, darunter die Taste und bei Bedarf das Feld */
 .gs-aufgabe { display: grid; border-top: 1px solid var(--linie); }
 .gs-aufgabe:first-child { border-top: 0; }
@@ -236,6 +248,7 @@ a.gs-zeile:hover { background: color-mix(in srgb, var(--stahl) 7%, var(--flaeche
   .filter button { padding: 8px 10px; font-size: 12.5px; }
   .suche { flex: 1 1 96px; min-width: 96px; max-width: 150px; }
   .firmen > summary { padding: 9px 11px; font-size: 12.5px; }
+  .listenknopf { padding: 9px 11px; font-size: 12.5px; }
   .firmen-feld { position: fixed; left: 16px; right: 16px; top: 108px; width: auto; }
   .suche input { width: 100%; padding: 9px 12px; }
   .seite { width: 100%; border-left: 0; }

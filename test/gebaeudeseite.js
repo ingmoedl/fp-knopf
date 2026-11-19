@@ -12,6 +12,10 @@
               laedt, datei, fehler, fehlerAufgaben, fussnote, aufDerKarte,
               bearbeiten (darf geschrieben werden), offen (Nummer der Aufgabe in Bearbeitung), arbeit (Nummer der
               Aufgabe, die gerade gespeichert wird), meldung { text, art: 'ok' | 'warn', id, rueck } }
+  FPGebaeudeseite.zeichnenListe(root, modell, { wie oben, dazu beiGebaeude(nr) }) zeichnet die Aufgabenliste der
+    Auswahl: alle Aufgaben, die zu Person und Firmen passen, nach Gebäuden gruppiert, „Ohne Gebäude“ zuerst.
+    modell: { liste (aus FPKarteAuswertung.liste), filter, firmen, ich, team, zaehler, fehlerAufgaben, fussnote,
+              bearbeiten, offen, arbeit, meldung }
   FPGebaeudeseite.filterLeiste(team, ich, filter, zaehler, beiFilter) baut die Tasten für den Personenfilter.
   FPGebaeudeseite.firmenWahl(liste, gewaehlt, beiWahl, offen) baut die Firmenwahl für die Leiste: eine Taste,
     darunter je Firma eine Zeile zum Anhaken. liste kommt aus FPKarteAuswertung.firmenListe.
@@ -305,5 +309,50 @@
     root.scrollTop = o.behalten ? oben : 0;
   }
 
-  wurzel.FPGebaeudeseite = { zeichnen, filterLeiste, firmenWahl, h };
+  /* Aufgabenliste der Auswahl. Hier stehen auch die Aufgaben, die keinem Gebäude zufallen. */
+  function zeichnenListe(root, m, o) {
+    o = o || {};
+    const l = m.liste, z = l.zahlen;
+    const oben = root.scrollTop;
+    const firmenGewaehlt = m.firmen || [];
+    const wer = !m.filter || m.filter === 'alle' ? 'Alle Aufgaben' : m.filter === 'meine' ? 'Meine Aufgaben' : 'Aufgaben von ' + m.filter;
+    const kopf = h('header', { class: 'gs-kopf' },
+      h('button', { type: 'button', class: 'gs-zu', 'aria-label': 'Aufgabenliste schließen, zurück zur Karte', onclick: () => o.beiZu && o.beiZu() },
+        h('span', { class: 'nur-schmal', text: '‹ Karte' }), h('span', { class: 'nur-breit', text: 'Schließen' })),
+      h('div', { class: 'gs-nr wort', text: 'Aufgaben' }),
+      h('div', { class: 'gs-name', text: wer + (firmenGewaehlt.length ? ' · ' + firmenGewaehlt.map(firmaName).join(', ') : '') }));
+
+    const innen = h('div', { class: 'gs-innen' });
+    innen.append(filterLeiste(m.team, m.ich, m.filter, m.zaehler, (f) => o.beiFilter && o.beiFilter(f)));
+    if (l.firmen && l.firmen.length) innen.append(firmenMarken(l.firmen, firmenGewaehlt, (neu) => o.beiFirmen && o.beiFirmen(neu)));
+
+    const feld = (zahl, wort, zusatz, rot) => h('div', { class: 'gs-zahl' }, h('b', { text: String(zahl) }), h('span', { text: wort }), h('i', { class: rot ? 'rot' : '', text: zusatz || '' }));
+    innen.append(h('div', { class: 'gs-zahlen' },
+      feld(z.aufgaben, z.aufgaben === 1 ? 'Aufgabe' : 'Aufgaben', z.ueberfaellig ? z.ueberfaellig + ' überfällig' : z.heute ? z.heute + ' heute fällig' : '', z.ueberfaellig > 0),
+      feld(z.gebaeude, z.gebaeude === 1 ? 'Gebäude' : 'Gebäude'),
+      feld(z.ohne, 'ohne Gebäude')));
+
+    const offeneDa = m.meldung && m.meldung.id != null && m.offen === m.meldung.id && l.gruppen.some((g) => g.aufgaben.some((a) => a.id === m.meldung.id));
+    if (m.bearbeiten && m.meldung && !offeneDa) innen.append(meldungEl(m.meldung, o, true));
+
+    if (m.fehlerAufgaben) innen.append(h('div', { class: 'gs-leer warn', text: 'Die Aufgaben konnten nicht geladen werden: ' + m.fehlerAufgaben }));
+    else if (!l.gruppen.length) innen.append(h('div', { class: 'gs-leer', text: 'Keine offene Aufgabe für diese Auswahl.' }));
+    for (const g of l.gruppen) {
+      const inhalt = [g.nr === null ? null : h('span', { class: 'nr', text: g.nr }), h('span', { class: 'name', text: g.name }), h('span', { class: 'anz', text: String(g.aufgaben.length) })];
+      const gruppenkopf = g.nr === null
+        ? h('div', { class: 'gs-gruppenkopf' }, inhalt)
+        : h('button', { type: 'button', class: 'gs-gruppenkopf', 'aria-label': 'Gebäude ' + g.nr + ' öffnen', onclick: () => o.beiGebaeude && o.beiGebaeude(g.nr) }, inhalt);
+      innen.append(h('section', { class: 'gs-abschnitt' }, gruppenkopf, h('div', { class: 'gs-liste' }, g.aufgaben.map((a) => aufgabeBlock(a, m, o)))));
+    }
+
+    const fuss = h('footer', { class: 'gs-fuss' });
+    if (m.fussnote) fuss.append(h('p', { class: 'warn', text: m.fussnote }));
+    fuss.append(h('p', { text: 'Die Liste folgt den Filtern nach Person und Firma. Eine Aufgabe an zwei Gebäuden steht bei beiden.' }));
+    innen.append(fuss);
+
+    root.replaceChildren(kopf, innen);
+    root.scrollTop = o.behalten ? oben : 0;
+  }
+
+  wurzel.FPGebaeudeseite = { zeichnen, zeichnenListe, filterLeiste, firmenWahl, h };
 })(typeof window !== 'undefined' ? window : this);

@@ -154,5 +154,42 @@
     };
   }
 
-  wurzel.FPKarteAuswertung = { passt, nachFirmen, firmenListe, zaehler, lagebild, seite, tageBis, tagKurz, tagOhneWt, uhrzeit, standText, abstand, heuteIso };
+  /*
+    Aufgabenliste der Auswahl: alle Aufgaben, die zu Person und Firmen passen, gruppiert nach Gebäude.
+    Aufgaben ohne Gebäude stehen zuerst, dann die Gebäude nach Nummer. Eine Aufgabe an zwei Gebäuden steht bei
+    beiden, in den Zahlen zählt sie einmal.
+      gebaeude   Map der Gebäude aus der Ladeschicht (für die Namen)
+      o          { filter, ich, heute, firmen }
+  */
+  function liste(aufgaben, gebaeude, o) {
+    const heute = o.heute || heuteIso();
+    const passend = aufgaben.filter((a) => passt(a, o.filter, o.ich, o.firmen));
+    const reich = (a, nr) => {
+      const tage = a.faellig ? tageBis(a.faellig, heute) : null;
+      return Object.assign({}, a, { tage, ueberfaellig: tage !== null && tage < 0, heute: tage === 0, meine: passt(a, 'meine', o.ich), zuordnung: nr === null ? null : a.gebaeude.find((g) => g.nr === nr) });
+    };
+    const nach = new Map();
+    for (const a of passend) {
+      for (const nr of (a.gebaeude.length ? a.gebaeude.map((g) => g.nr) : [null])) {
+        if (!nach.has(nr)) nach.set(nr, []);
+        nach.get(nr).push(reich(a, nr));
+      }
+    }
+    const ordnung = (x, y) => (x === null ? -1 : y === null ? 1 : x.localeCompare(y, 'de', { numeric: true }));
+    const gruppen = [...nach.keys()].sort(ordnung).map((nr) => {
+      const g = nr === null ? null : gebaeude.get(nr);
+      return { nr, name: nr === null ? 'Ohne Gebäude' : (g && g.name) || '', aufgaben: nach.get(nr).sort(nachFaelligkeit(o.ich)) };
+    });
+    const tage = passend.map((a) => (a.faellig ? tageBis(a.faellig, heute) : null));
+    return {
+      gruppen,
+      zahlen: {
+        aufgaben: passend.length, ueberfaellig: tage.filter((t) => t !== null && t < 0).length, heute: tage.filter((t) => t === 0).length,
+        gebaeude: gruppen.filter((g) => g.nr !== null).length, ohne: nach.has(null) ? nach.get(null).length : 0,
+      },
+      firmen: firmenListe(aufgaben, o.filter, o.ich),
+    };
+  }
+
+  wurzel.FPKarteAuswertung = { passt, nachFirmen, firmenListe, zaehler, lagebild, seite, liste, tageBis, tagKurz, tagOhneWt, uhrzeit, standText, abstand, heuteIso };
 })(typeof window !== 'undefined' ? window : this);

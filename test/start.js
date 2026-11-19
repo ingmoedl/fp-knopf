@@ -7,7 +7,7 @@
   bearbeiten (bearbeiten.js).
   Lokal liefert sie quelle-lokal.js, im Betrieb quelle-sharepoint.js mit der Anmeldung an SharePoint.
 
-  Adresse: #g=<Nummer> öffnet die Gebäudeseite, #g=ohne die Aufgaben ohne Gebäude.
+  Adresse: #g=<Nummer> öffnet die Gebäudeseite, #g=ohne die Aufgaben ohne Gebäude, #g=liste die Aufgabenliste der Auswahl.
   Mit ?ruhig läuft die Karte ohne Bewegung.
 */
 (async function () {
@@ -20,7 +20,8 @@
   const lies = (k) => { try { return localStorage.getItem(k); } catch (e) { return null; } };
   const schreib = (k, v) => { try { localStorage.setItem(k, v); } catch (e) { } };
   const breit = () => window.innerWidth > 720;
-  const OHNE = '_ohne';
+  const OHNE = '_ohne', LISTE = '_liste';
+  const istGebaeude = (key) => key !== OHNE && key !== LISTE;
 
   let Q;
   try { Q = await window.FP_KARTE_QUELLE; if (!Q || !Q.sp || !Q.cfg) throw new Error('Keine Datenquelle eingebunden.'); }
@@ -71,6 +72,7 @@
     karte.zustand(Z.bild.gebaeude);
     $('#filter').replaceChildren(GS.filterLeiste(Z.team, Z.ich, Z.filter, A.zaehler(A.nachFirmen(Z.aufgaben, Z.firmen), Z.team, Z.ich), filterSetzen));
     firmenZeigen();
+    $('#liste-zahl').textContent = String(Z.aufgaben.filter((a) => A.passt(a, Z.filter, Z.ich, Z.firmen)).length);
     abseitsZeigen();
     standZeigen();
     if (Z.wahl) seiteZeigen(true);
@@ -124,6 +126,17 @@
   /* ---------- Gebäudeseite ---------- */
   function seiteZeigen(behalten) {
     const key = Z.wahl; if (!key) return;
+    const bearbeitung = { bearbeiten: !!bearb, offen: Z.offen, arbeit: Z.arbeit, meldung: Z.meldung };
+    const rueckrufe = { beiFilter: filterSetzen, beiFirmen: firmenSetzen, beiZu: () => schliessen(), behalten,
+      beiBearbeiten: bearbeitenSetzen, beiErledigt: erledigt, beiFaellig: faelligSetzen, beiNotiz: notiz, beiRueck: zurueckNehmen };
+    if (key === LISTE) {
+      GS.zeichnenListe(gs, Object.assign({
+        liste: A.liste(Z.aufgaben, grund.gebaeude, { filter: Z.filter, ich: Z.ich, heute: Z.heute, firmen: Z.firmen }),
+        filter: Z.filter, firmen: Z.firmen, ich: Z.ich, team: Z.team, zaehler: A.zaehler(A.nachFirmen(Z.aufgaben, Z.firmen), Z.team, Z.ich),
+        fehlerAufgaben: Z.fehlerAufgaben, fussnote: Q.fussnote || '',
+      }, bearbeitung), Object.assign({ beiGebaeude: (nr) => oeffnen(nr) }, rueckrufe));
+      return;
+    }
     const ohne = key === OHNE;
     const nr = ohne ? null : key;
     const datei = ohne ? null : Z.dateien.get(key) || null;
@@ -134,9 +147,8 @@
       filter: Z.filter, firmen: Z.firmen, ich: Z.ich, team: Z.team, zaehler: A.zaehler(A.nachFirmen(amGebaeude, Z.firmen), Z.team, Z.ich),
       laedt: !ohne && !datei && !Z.dateiFehler.has(key), datei, fehler: Z.dateiFehler.get(key) || '', fehlerAufgaben: Z.fehlerAufgaben,
       fussnote: Q.fussnote || '', aufDerKarte: !ohne && karte.hat(key),
-      bearbeiten: !!bearb, offen: Z.offen, arbeit: Z.arbeit, meldung: Z.meldung,
-    }, { beiFilter: filterSetzen, beiFirmen: firmenSetzen, beiZu: () => schliessen(), behalten,
-      beiBearbeiten: bearbeitenSetzen, beiErledigt: erledigt, beiFaellig: faelligSetzen, beiNotiz: notiz, beiRueck: zurueckNehmen });
+      bearbeiten: bearbeitung.bearbeiten, offen: bearbeitung.offen, arbeit: bearbeitung.arbeit, meldung: bearbeitung.meldung,
+    }, rueckrufe);
   }
 
   /* ---------- Bearbeiten ---------- */
@@ -208,19 +220,20 @@
   function raender() { karte.rand({ r: breit() && Z.wahl ? seiteEl.offsetWidth : 0, o: breit() ? 56 : 104, u: breit() ? 0 : 56 }); }
 
   function oeffnen(key, ausAdresse) {
-    if (key !== OHNE && !grund.gebaeude.has(key)) return false;
+    if (istGebaeude(key) && !grund.gebaeude.has(key)) return false;
     const neu = Z.wahl !== key;
     if (neu && !Z.arbeit) { Z.offen = null; Z.meldung = null; }
     Z.wahl = key;
     seiteEl.classList.add('offen'); seiteEl.setAttribute('aria-hidden', 'false'); app.classList.add('seite-offen');
-    karte.waehle(key === OHNE ? null : key);
+    karte.waehle(istGebaeude(key) ? key : null);
     raender();
-    if (key !== OHNE && karte.hat(key)) karte.zeige(key);
+    if (istGebaeude(key) && karte.hat(key)) karte.zeige(key);
+    $('#liste-auf').setAttribute('aria-pressed', String(key === LISTE));
     seiteZeigen(!neu);
     abseitsZeigen();
     if (!ausAdresse) adresseSetzen(key);
     if (!breit()) seiteEl.focus({ preventScroll: true });
-    if (key !== OHNE && !Z.dateien.has(key)) {
+    if (istGebaeude(key) && !Z.dateien.has(key)) {
       Z.dateiFehler.delete(key);
       daten.gebaeude(key).then((d) => { Z.dateien.set(key, d); }, (e) => { Z.dateiFehler.set(key, msg(e)); })
         .then(() => { if (Z.wahl === key) seiteZeigen(true); });
@@ -233,15 +246,16 @@
     Z.wahl = null;
     seiteEl.classList.remove('offen'); seiteEl.setAttribute('aria-hidden', 'true'); app.classList.remove('seite-offen');
     karte.waehle(null);
+    $('#liste-auf').setAttribute('aria-pressed', 'false');
     raender(); abseitsZeigen();
     if (!ausAdresse) adresseSetzen(null);
     if (seiteEl.contains(document.activeElement)) $('#karte').focus({ preventScroll: true });
   }
 
   /* ---------- Adresse ---------- */
-  const ausAdresseLesen = () => { const m = /^#g=(.+)$/.exec(location.hash); if (!m) return null; const k = decodeURIComponent(m[1]); return k === 'ohne' ? OHNE : k; };
+  const ausAdresseLesen = () => { const m = /^#g=(.+)$/.exec(location.hash); if (!m) return null; const k = decodeURIComponent(m[1]); return k === 'ohne' ? OHNE : k === 'liste' ? LISTE : k; };
   function adresseSetzen(key) {
-    const ziel = key ? '#g=' + encodeURIComponent(key === OHNE ? 'ohne' : key) : '';
+    const ziel = key ? '#g=' + encodeURIComponent(key === OHNE ? 'ohne' : key === LISTE ? 'liste' : key) : '';
     if (location.hash === ziel || (!ziel && !location.hash)) return;
     if (ziel) location.hash = ziel; else history.replaceState(null, '', location.pathname + location.search);
   }
@@ -283,6 +297,7 @@
   suche.addEventListener('blur', () => { treffer.hidden = true; });
 
   /* ---------- Werkzeuge ---------- */
+  $('#liste-auf').onclick = () => { if (Z.wahl === LISTE) schliessen(); else oeffnen(LISTE); };
   $('#w-plus').onclick = () => karte.zoom(1.6);
   $('#w-minus').onclick = () => karte.zoom(1 / 1.6);
   $('#w-ansicht').onclick = () => karte.ansichtWechseln();
