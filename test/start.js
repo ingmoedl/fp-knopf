@@ -112,11 +112,14 @@
     const el = $('#abseits'), marken = [];
     for (const [nr, e] of Z.bild.gebaeude) {
       if (!e.relevant || karte.hat(nr)) continue;
-      marken.push(h('button', { type: 'button', class: 'schild relevant' + (e.dringend ? ' dringend' : '') + (Z.wahl === nr ? ' gewaehlt' : ''),
-        'aria-label': 'Gebäude ' + nr + ', nicht auf der Karte verortet', onclick: () => oeffnen(nr) }, h('span', { text: nr })));
+      const ueber = e.dringend ? window.FPKarteAnsicht.ueberText(e.ueberfaellig) : '';
+      marken.push(h('button', { type: 'button', class: 'schild relevant' + (e.dringend ? ' dringend' : '') + (Z.wahl === nr ? ' gewaehlt' : ''), 'data-ueber': ueber || null,
+        'aria-label': 'Gebäude ' + nr + ', nicht auf der Karte verortet' + (ueber ? ', ' + ueber + ' überfällig' : ''), onclick: () => oeffnen(nr) }, h('span', { text: nr })));
     }
     if (Z.bild.ohne.aufgaben) {
-      marken.push(h('button', { type: 'button', class: 'schild' + (Z.wahl === OHNE ? ' gewaehlt' : ''), onclick: () => oeffnen(OHNE) },
+      const ueber = window.FPKarteAnsicht.ueberText(Z.bild.ohne.ueberfaellig);
+      marken.push(h('button', { type: 'button', class: 'schild' + (ueber ? ' dringend' : '') + (Z.wahl === OHNE ? ' gewaehlt' : ''), 'data-ueber': ueber || null,
+        'aria-label': 'Ohne Gebäude, ' + Z.bild.ohne.aufgaben + ' Aufgaben' + (ueber ? ', ' + ueber + ' überfällig' : ''), onclick: () => oeffnen(OHNE) },
         h('span', { text: 'Ohne Gebäude · ' + Z.bild.ohne.aufgaben })));
     }
     el.hidden = !marken.length;

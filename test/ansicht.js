@@ -5,6 +5,7 @@
   eigenen Ordner). Schräge Parallelansicht: Der Boden ist eine einfache lineare Abbildung, Höhen gehen
   senkrecht nach oben. Baukörper mit Einträgen treten in Bernstein hervor, alle anderen bleiben flach.
   An jedem Gebäude steht nur ein Nummernschild. Beim Überfahren erscheint kein Textfenster.
+  Hat ein Gebäude überfällige Aufgaben, trägt das Schild deren Zahl in einem roten Zeichen.
 
   Einheiten der Geometrie: Dezimeter, x nach Osten, y nach Norden.
 
@@ -12,7 +13,7 @@
     el         Behälter mit <canvas> und <div class="schilder">
     karte      Geometrie (flaechen, linien, neubau, bestand_ids, texte)
     gebaeude   Map nr → { nr, name, hoehe (m), lage: { art: polygon | pin | unbekannt, polys, p, sicher } }
-  Rückgabe: { zustand(Map nr → { relevant, dringend }), waehle(nr), zeige(nr), rand({l, r, o, u}),
+  Rückgabe: { zustand(Map nr → { relevant, dringend, ueberfaellig }), waehle(nr), zeige(nr), rand({l, r, o, u}),
               zoom(faktor), ansichtWechseln(), start(), hat(nr), stand(), groesse(), ordnen() }
   Gezeichnet wird auf Anforderung. Bleibt der Bildtakt des Browsers aus (Seite im Hintergrund), zeichnet ein Zeitgeber.
   Nach jeder Größenänderung, jedem neuen Zustand und jeder Auswahl wird sofort neu gerechnet.
@@ -21,6 +22,8 @@
   'use strict';
 
   const klemme = (v, a, b) => Math.min(b, Math.max(a, v));
+  /* Zahl der überfälligen Aufgaben am Schild. Ohne Zahl bleibt es beim Punkt. */
+  const ueberText = (n) => (n > 99 ? '99+' : n > 0 ? String(n) : '');
   const weich = (p) => (p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2);
   const SCHRAEG = 0.86;            // Neigung aus der Senkrechten, im Bogenmaß
   const NEIG_MAX = 1.15;
@@ -155,7 +158,8 @@
       const s = document.createElement('button');
       s.type = 'button'; s.className = 'schild weg' + (b.pin ? ' pin' : '') + (b.sicher ? '' : ' unsicher');     // verborgen, bis die Lage gerechnet ist
       s.dataset.nr = b.nr;
-      s.setAttribute('aria-label', 'Gebäude ' + b.nr + (g && g.name ? ', ' + g.name : ''));
+      b.titel = 'Gebäude ' + b.nr + (g && g.name ? ', ' + g.name : '');
+      s.setAttribute('aria-label', b.titel);
       const t = document.createElement('span'); t.textContent = b.nr; s.append(t);
       s.addEventListener('click', (ev) => { if (ev.detail === 0 && o.beiWahl) o.beiWahl(b.nr); });      // Tastatur. Der Zeiger läuft über die Karte
       s.addEventListener('focus', () => { if (s.matches(':focus-visible')) hoverSetzen(b.nr); });
@@ -519,6 +523,9 @@
         const z = (map && map.get(b.nr)) || {};
         b.relevant = !!z.relevant; b.dringend = !!z.dringend;
         b.schild.classList.toggle('relevant', b.relevant); b.schild.classList.toggle('dringend', b.dringend);
+        const ueber = b.dringend ? ueberText(z.ueberfaellig) : '';
+        if (ueber) b.schild.dataset.ueber = ueber; else delete b.schild.dataset.ueber;
+        b.schild.setAttribute('aria-label', b.titel + (ueber ? ', ' + ueber + ' überfällig' : ''));
         const ziel = b.relevant && !b.pin ? 1 : 0;
         if (ziel !== b.zielHoch) {
           b.zielHoch = ziel; const von = b.hoch;
@@ -556,5 +563,5 @@
     };
   }
 
-  wurzel.FPKarteAnsicht = { erzeugen };
+  wurzel.FPKarteAnsicht = { ueberText, erzeugen };
 })(typeof window !== 'undefined' ? window : this);
