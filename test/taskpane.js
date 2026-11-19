@@ -411,9 +411,9 @@ async function urteilSpeichern(mail, u) {
   const ziel = `${CONFIG.web}/_api/web/GetFolderByServerRelativePath(decodedurl='${pfad(ordner)}')/Files/AddUsingPath(decodedurl='${pfad(o.name)}',overwrite=true)`;
   try { await sp(ziel, { method: "POST", body }); }
   catch (e) {
-    if (e.status !== 404) throw e;
-    // Den Ordner dieses Monats gibt es noch nicht
-    await sp(`${CONFIG.web}/_api/web/folders/AddUsingPath(DecodedUrl='${pfad(ordner)}',overwrite=false)`, { method: "POST" });
+    if (e.status !== 404 && !/not ?found|nicht gefunden/i.test(e.message || "")) throw e;
+    // Den Ordner dieses Monats gibt es noch nicht. Legt ihn gerade jemand anderes an, ist das kein Fehler.
+    try { await sp(`${CONFIG.web}/_api/web/folders/AddUsingPath(DecodedUrl='${pfad(ordner)}',overwrite=false)`, { method: "POST" }); } catch (_) { }
     await sp(ziel, { method: "POST", body });
   }
   return "Urteil gespeichert.";
