@@ -167,6 +167,25 @@ button:focus-visible, a:focus-visible, input:focus-visible, summary:focus-visibl
 .gs-zeile.zwei { grid-template-columns: 82px minmax(0, 1fr); }
 .gs-zeile:first-child, .gs-punkt:first-child { border-top: 0; }
 a.gs-zeile:hover { background: color-mix(in srgb, var(--stahl) 7%, var(--flaeche-2)); }
+/* Aufgabe mit Bearbeitung: die Zeile, darunter die Taste und bei Bedarf das Feld */
+.gs-aufgabe { display: grid; border-top: 1px solid var(--linie); }
+.gs-aufgabe:first-child { border-top: 0; }
+.gs-aufgabe > .gs-zeile { border-top: 0; }
+.gs-stift { justify-self: end; margin: -6px 10px 7px; padding: 3px 6px; border: 0; border-radius: 6px; background: transparent; color: var(--text-3); font: 500 11.5px/1.2 var(--font-text); cursor: pointer; }
+.gs-stift:hover, .gs-stift[aria-expanded="true"] { color: var(--text); background: var(--flaeche); }
+.gs-bearb { display: grid; gap: 8px; padding: 10px 12px 12px; background: var(--flaeche); border-top: 1px solid var(--linie); }
+.gs-bearb .reihe { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; }
+.gs-bearb .lab { margin-left: 6px; font: 500 12px/1 var(--font-text); color: var(--text-3); }
+.gs-bearb button, .gs-meldung button { border: 1px solid var(--linie); background: var(--flaeche-2); color: var(--text); font: 600 12px/1 var(--font-text); padding: 8px 11px; border-radius: 999px; cursor: pointer; }
+.gs-bearb button:hover:not(:disabled), .gs-meldung button:hover { border-color: var(--stahl); }
+.gs-bearb button:disabled { color: var(--text-3); cursor: default; }
+.gs-bearb button.erledigt { border-color: color-mix(in srgb, var(--ampel-gruen) 55%, var(--linie)); }
+.gs-bearb input { color: var(--text); background: var(--flaeche-2); border: 1px solid var(--linie); border-radius: 8px; padding: 7px 9px; font: 500 12.5px/1 var(--font-text); outline: none; color-scheme: dark; }
+.gs-bearb input:focus { border-color: var(--stahl); }
+.gs-bearb input.notiz { flex: 1 1 160px; min-width: 0; }
+.gs-meldung { display: flex; align-items: center; justify-content: space-between; gap: 10px; font: 500 12.5px/1.35 var(--font-text); color: var(--ampel-gruen); overflow-wrap: anywhere; }
+.gs-meldung.warn { color: var(--bernstein); }
+.gs-meldung.oben { padding: 8px 10px; border: 1px solid var(--linie); border-radius: 8px; background: var(--flaeche-2); }
 .gs-zeile.ueber { box-shadow: inset 3px 0 0 var(--rot); }
 .gs-zeile.heute { box-shadow: inset 3px 0 0 var(--bernstein); }
 .gs-wann { display: grid; gap: 2px; font: 500 12px/1.3 var(--font-daten); color: var(--text-2); }

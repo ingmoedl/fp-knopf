@@ -2,8 +2,9 @@
   FP-Karte – Start
   ----------------
   Verbindet Ladeschicht, Kartenansicht und Gebäudeseite. Die Datenquelle kommt von außen als
-  window.FP_KARTE_QUELLE (Versprechen mit { sp, cfg, konto, maildomain } und für lokale Quellen dazu beschriftung, fussnote,
-  heute, eigeneParteien).
+  window.FP_KARTE_QUELLE (Versprechen mit { sp, cfg, konto, maildomain, schreiben } und für lokale Quellen dazu
+  beschriftung, fussnote, heute, eigeneParteien). Mit schreiben lassen sich Aufgaben auf der Gebäudeseite
+  bearbeiten (bearbeiten.js).
   Lokal liefert sie quelle-lokal.js, im Betrieb quelle-sharepoint.js mit der Anmeldung an SharePoint.
 
   Adresse: #g=<Nummer> öffnet die Gebäudeseite, #g=ohne die Aufgaben ohne Gebäude.
@@ -41,7 +42,10 @@
     filter: 'alle', firmen: [], firmenOffen: false, wahl: null, heute: Q.heute || A.heuteIso(), team: [], ich: null,
     aufgaben: [], fehlerAufgaben: '', index: new Map(), indexStand: '', indexFehlt: false,
     bild: { gebaeude: new Map(), ohne: { aufgaben: 0 } }, dateien: new Map(), dateiFehler: new Map(),
+    offen: null, arbeit: null, meldung: null, zurueck: null,       // Bearbeitung: offene Aufgabe, laufendes Speichern, Rückmeldung, zuletzt Erledigtes
   };
+  const bearb = Q.schreiben && window.FPKarteBearbeiten
+    ? window.FPKarteBearbeiten.erzeugen({ sp: Q.sp, cfg: Q.cfg, ich: () => Z.ich, heute: () => Q.heute || A.heuteIso() }) : null;
 
   const karte = window.FPKarteAnsicht.erzeugen($('#karte'), grund.karte, grund.gebaeude, {
     beiWahl: (nr) => oeffnen(nr),
@@ -130,7 +134,75 @@
       filter: Z.filter, firmen: Z.firmen, ich: Z.ich, team: Z.team, zaehler: A.zaehler(A.nachFirmen(amGebaeude, Z.firmen), Z.team, Z.ich),
       laedt: !ohne && !datei && !Z.dateiFehler.has(key), datei, fehler: Z.dateiFehler.get(key) || '', fehlerAufgaben: Z.fehlerAufgaben,
       fussnote: Q.fussnote || '', aufDerKarte: !ohne && karte.hat(key),
-    }, { beiFilter: filterSetzen, beiFirmen: firmenSetzen, beiZu: () => schliessen(), behalten });
+      bearbeiten: !!bearb, offen: Z.offen, arbeit: Z.arbeit, meldung: Z.meldung,
+    }, { beiFilter: filterSetzen, beiFirmen: firmenSetzen, beiZu: () => schliessen(), behalten,
+      beiBearbeiten: bearbeitenSetzen, beiErledigt: erledigt, beiFaellig: faelligSetzen, beiNotiz: notiz, beiRueck: zurueckNehmen });
+  }
+
+  /* ---------- Bearbeiten ---------- */
+  // Die Gebäudeseite arbeitet mit Kopien. Geändert wird die Aufgabe im Zustand.
+  const original = (k) => Z.aufgaben.find((x) => x.id === (k && k.id)) || null;
+
+  function bearbeitenSetzen(id) {
+    if (Z.arbeit) return;
+    Z.offen = id;
+    if (Z.meldung && Z.meldung.id !== id) Z.meldung = null;
+    seiteZeigen(true);
+  }
+
+  /* Eine Änderung speichern. Bei einem Fehler bleibt die Anzeige, wie sie war. Hat jemand anderes inzwischen
+     geändert, werden die Aufgaben neu geladen. */
+  async function aendern(a, tun, danach, text) {
+    if (!bearb || !a || Z.arbeit) return;
+    Z.arbeit = a.id; Z.meldung = null;
+    seiteZeigen(true);
+    try {
+      const r = await tun();
+      a.geaendert = r.geaendert;
+      Z.meldung = { id: a.id, text, art: 'ok' };
+      danach();
+    } catch (e) {
+      Z.meldung = { id: a.id, text: msg(e), art: 'warn' };
+      if (e && e.konflikt) {
+        try { Z.aufgaben = (await daten.aufgaben()).liste; Z.meldung.text += ' Die Anzeige ist jetzt aktuell.'; } catch (f) { Z.fehlerAufgaben = msg(f); }
+      }
+    }
+    Z.arbeit = null;
+    neuRechnen();
+  }
+
+  function erledigt(k) {
+    const a = original(k);
+    aendern(a, () => bearb.erledigen(a), () => {
+      Z.aufgaben = Z.aufgaben.filter((x) => x !== a);
+      Z.offen = null; Z.zurueck = a;
+      Z.meldung = { text: 'Erledigt: ' + a.titel, art: 'ok', rueck: true };
+    }, '');
+  }
+
+  async function zurueckNehmen() {
+    const a = Z.zurueck;
+    if (!bearb || !a || Z.arbeit) return;
+    Z.arbeit = a.id; Z.meldung = { text: 'Wird zurückgenommen …', art: 'ok' };
+    seiteZeigen(true);
+    try {
+      const r = await bearb.wiederOeffnen(a);
+      a.geaendert = r.geaendert;
+      Z.aufgaben = Z.aufgaben.concat(a); Z.zurueck = null;
+      Z.meldung = { text: 'Wieder offen: ' + a.titel, art: 'ok' };
+    } catch (e) { Z.meldung = { text: msg(e), art: 'warn' }; }
+    Z.arbeit = null;
+    neuRechnen();
+  }
+
+  function faelligSetzen(k, iso) {
+    const a = original(k);
+    aendern(a, () => bearb.faelligSetzen(a, iso), () => { a.faellig = iso; }, iso ? 'Fälligkeit gespeichert: ' + A.tagKurz(iso) : 'Die Aufgabe ist jetzt ohne Termin.');
+  }
+
+  function notiz(k, text) {
+    const a = original(k);
+    aendern(a, () => bearb.notiz(a, text), () => { }, 'Notiz angefügt.');
   }
 
   function raender() { karte.rand({ r: breit() && Z.wahl ? seiteEl.offsetWidth : 0, o: breit() ? 56 : 104, u: breit() ? 0 : 56 }); }
@@ -138,6 +210,7 @@
   function oeffnen(key, ausAdresse) {
     if (key !== OHNE && !grund.gebaeude.has(key)) return false;
     const neu = Z.wahl !== key;
+    if (neu && !Z.arbeit) { Z.offen = null; Z.meldung = null; }
     Z.wahl = key;
     seiteEl.classList.add('offen'); seiteEl.setAttribute('aria-hidden', 'false'); app.classList.add('seite-offen');
     karte.waehle(key === OHNE ? null : key);

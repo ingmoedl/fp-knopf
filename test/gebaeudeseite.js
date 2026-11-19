@@ -6,9 +6,12 @@
 
   Alle Texte aus Aufgaben und Mails sind fremder Inhalt. Sie werden nur als Text eingesetzt, nie als HTML.
 
-  FPGebaeudeseite.zeichnen(root, modell, { beiFilter(f), beiFirmen(liste), beiZu(), behalten })
+  FPGebaeudeseite.zeichnen(root, modell, { beiFilter(f), beiFirmen(liste), beiZu(), behalten,
+                                           beiBearbeiten(id | null), beiErledigt(a), beiFaellig(a, iso), beiNotiz(a, text), beiRueck() })
     modell: { art: 'gebaeude' | 'ohne', g, sicht (aus FPKarteAuswertung.seite), filter, firmen, ich, team, zaehler,
-              laedt, datei, fehler, fehlerAufgaben, fussnote, aufDerKarte }
+              laedt, datei, fehler, fehlerAufgaben, fussnote, aufDerKarte,
+              bearbeiten (darf geschrieben werden), offen (Nummer der Aufgabe in Bearbeitung), arbeit (Nummer der
+              Aufgabe, die gerade gespeichert wird), meldung { text, art: 'ok' | 'warn', id, rueck } }
   FPGebaeudeseite.filterLeiste(team, ich, filter, zaehler, beiFilter) baut die Tasten für den Personenfilter.
   FPGebaeudeseite.firmenWahl(liste, gewaehlt, beiWahl, offen) baut die Firmenwahl für die Leiste: eine Taste,
     darunter je Firma eine Zeile zum Anhaken. liste kommt aus FPKarteAuswertung.firmenListe.
@@ -130,6 +133,45 @@
     return h(eig.href ? 'a' : 'div', eig, wann, was, kuerzelMarken(a, m.team));
   }
 
+  /* Rückmeldung nach einer Änderung. Der Text kann den Namen einer Aufgabe enthalten und wird nur als Text eingesetzt. */
+  function meldungEl(mel, o, oben) {
+    const el = h('div', { class: 'gs-meldung ' + (mel.art === 'warn' ? 'warn' : 'ok') + (oben ? ' oben' : ''), role: 'status' }, h('span', { text: String(mel.text || '') }));
+    if (mel.rueck) el.append(h('button', { type: 'button', onclick: () => o.beiRueck && o.beiRueck() }, 'Rückgängig'));
+    return el;
+  }
+
+  /* Bearbeitung einer Aufgabe: erledigen, Fälligkeit, Notiz. Jede Taste meldet nur, gespeichert wird außerhalb. */
+  function bearbeitung(a, m, o) {
+    const zu = m.arbeit === a.id;
+    const datum = h('input', { type: 'date', class: 'faellig', value: a.faellig || '', disabled: zu, 'aria-label': 'Fälligkeit' });
+    const notiz = h('input', { type: 'text', class: 'notiz', maxlength: 300, placeholder: 'Notiz für den Verlauf', disabled: zu, 'aria-label': 'Notiz für den Verlauf' });
+    const sende = () => { if (notiz.value.trim() && o.beiNotiz) o.beiNotiz(a, notiz.value); };
+    notiz.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); sende(); } });
+    const taste = (klasse, text, fn, aus) => h('button', { type: 'button', class: klasse, disabled: zu || aus, onclick: fn }, text);
+    const el = h('div', { class: 'gs-bearb' },
+      h('div', { class: 'reihe' },
+        taste('erledigt', 'Erledigt', () => o.beiErledigt && o.beiErledigt(a)),
+        h('span', { class: 'lab', text: 'Fällig' }), datum,
+        taste('setzen', 'Setzen', () => o.beiFaellig && o.beiFaellig(a, datum.value)),
+        taste('ohne', 'Ohne Termin', () => o.beiFaellig && o.beiFaellig(a, ''), !a.faellig)),
+      h('div', { class: 'reihe' }, notiz, taste('anfuegen', 'Notiz anfügen', sende)));
+    if (zu) el.append(h('div', { class: 'gs-meldung', role: 'status' }, h('span', { text: 'Wird gespeichert …' })));
+    else if (m.meldung && m.meldung.id === a.id) el.append(meldungEl(m.meldung, o, false));
+    return el;
+  }
+
+  /* Eine Aufgabe mit der Taste „Bearbeiten“. Ohne Schreibrecht bleibt es bei der Zeile. */
+  function aufgabeBlock(a, m, o) {
+    const zeile = aufgabeZeile(a, m);
+    if (!m.bearbeiten) return zeile;
+    const offen = m.offen === a.id;
+    const block = h('div', { class: 'gs-aufgabe' + (offen ? ' offen' : ''), 'data-id': a.id }, zeile,
+      h('button', { type: 'button', class: 'gs-stift', 'aria-expanded': String(offen), 'aria-label': (offen ? 'Bearbeitung schließen: ' : 'Aufgabe bearbeiten: ') + a.titel,
+        onclick: () => o.beiBearbeiten && o.beiBearbeiten(offen ? null : a.id) }, offen ? 'Schließen' : 'Bearbeiten'));
+    if (offen) block.append(bearbeitung(a, m, o));
+    return block;
+  }
+
   function terminZeile(f) {
     const Aw = A();
     return h('div', { class: 'gs-zeile zwei' + (f.ueberfaellig ? ' ueber' : f.tage === 0 ? ' heute' : '') },
@@ -193,9 +235,12 @@
     const anzahl = gefiltert && s.aufgabenAlle !== s.aufgaben.length ? `${s.aufgaben.length} von ${s.aufgabenAlle}` : s.aufgaben.length || '';
     let aufgabenInhalt;
     if (m.fehlerAufgaben) aufgabenInhalt = h('div', { class: 'gs-leer warn', text: 'Die Aufgaben konnten nicht geladen werden: ' + m.fehlerAufgaben });
-    else if (s.aufgaben.length) aufgabenInhalt = h('div', { class: 'gs-liste' }, s.aufgaben.map((a) => aufgabeZeile(a, m)));
+    else if (s.aufgaben.length) aufgabenInhalt = h('div', { class: 'gs-liste' }, s.aufgaben.map((a) => aufgabeBlock(a, m, o)));
     else aufgabenInhalt = h('div', { class: 'gs-leer', text: s.aufgabenAlle ? `Keine offene Aufgabe für diese Auswahl. Am Gebäude sind insgesamt ${s.aufgabenAlle} offen.` : 'Keine offene Aufgabe.' });
-    innen.append(abschnitt('gs-aufgaben', 'Aufgaben', anzahl, aufgabenInhalt));
+    // Meldung über der Liste, wenn sie zu keiner offenen Bearbeitung gehört (zum Beispiel nach „Erledigt“)
+    const inZeile = m.meldung && m.meldung.id != null && m.offen === m.meldung.id && s.aufgaben.some((a) => a.id === m.meldung.id);
+    const melOben = m.bearbeiten && m.meldung && !inZeile ? meldungEl(m.meldung, o, true) : null;
+    innen.append(abschnitt('gs-aufgaben', 'Aufgaben', anzahl, melOben, aufgabenInhalt));
 
     if (!istOhne) {
       const warte = m.laedt ? h('div', { class: 'gs-leer', text: 'Wird geladen …' }) : null;

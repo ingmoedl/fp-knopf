@@ -5,11 +5,12 @@
   Einstellungen wie die Übersicht (einstellungen.js). Die Adresse dieser Seite muss in der App-Registrierung
   als Umleitungs-URI (Single-Page-Anwendung) eingetragen sein.
 
-  Die Karte liest nur. sp() lässt deshalb nur GET durch und die eine Listenabfrage (POST …/GetItems), alles
-  andere wird abgelehnt, bevor eine Anfrage hinausgeht. Verlangt wird dasselbe Recht wie in der Übersicht,
-  damit keine neue Zustimmung nötig ist und die Anmeldung der Übersicht mitgilt.
+  Die Karte liest, mit einer Ausnahme. sp() lässt GET durch, die eine Listenabfrage (POST …/GetItems) und die
+  Bearbeitung einer Aufgabe der FP-Aufgaben mit genau vier Feldern (Status, Erledigt am, Fälligkeit, Verlauf,
+  siehe bearbeiten.js). Alles andere wird abgelehnt, bevor eine Anfrage hinausgeht. Verlangt wird dasselbe
+  Recht wie in der Übersicht, damit keine neue Zustimmung nötig ist und die Anmeldung der Übersicht mitgilt.
 
-  Ergebnis: window.FP_KARTE_QUELLE (Versprechen) mit { sp, cfg, konto: { mail, name }, maildomain }.
+  Ergebnis: window.FP_KARTE_QUELLE (Versprechen) mit { sp, cfg, konto: { mail, name }, maildomain, schreiben }.
   Braucht die Anmeldung einen Klick oder scheitert sie, steht der Hinweis im Ladefeld der Seite und das
   Versprechen bleibt offen. Nach der Weiterleitung lädt die Seite neu.
 
@@ -33,10 +34,13 @@
     }
   }
 
-  /* Nur Lesen: GET und die Abfrage der Mappen eines Ordners. */
-  function erlaubt(pfad, opts) {
+  /* Lesen: GET und die Abfrage der Mappen eines Ordners. Schreiben: nur die Bearbeitung einer Aufgabe der
+     eigenen Liste mit den erlaubten Feldern. */
+  function erlaubt(pfad, opts, listId) {
     const m = String((opts && opts.method) || 'GET').toUpperCase();
-    return m === 'GET' || (m === 'POST' && /\/_api\/web\/lists\(guid'[0-9a-f-]+'\)\/GetItems\?/i.test(String(pfad)));
+    if (m === 'GET' || (m === 'POST' && /\/_api\/web\/lists\(guid'[0-9a-f-]+'\)\/GetItems\?/i.test(String(pfad)))) return true;
+    const B = window.FPKarteBearbeiten;
+    return !!(B && B.istBearbeitung(pfad, opts, listId));
   }
 
   function quelle(o) {
@@ -105,7 +109,7 @@
       /* Wie sp() der Übersicht: JSON hin und zurück, bei Drosselung warten und wiederholen, Fehler tragen .status. */
       async function sp(pfad, opts) {
         opts = opts || {};
-        if (!erlaubt(pfad, opts)) throw new Error('Die Karte liest nur. Abgelehnt: ' + String(opts.method || 'GET') + ' ' + String(pfad).slice(0, 120));
+        if (!erlaubt(pfad, opts, S.listId)) throw new Error('Die Karte liest nur. Abgelehnt: ' + String(opts.method || 'GET') + ' ' + String(pfad).slice(0, 120));
         for (let v = 1; v <= 4; v++) {
           const headers = { Authorization: 'Bearer ' + (await token()), Accept: 'application/json;odata=nometadata' };
           if (opts.body !== undefined) headers['Content-Type'] = 'application/json;odata=nometadata';
@@ -128,7 +132,8 @@
 
       try { await token(); } catch (e) { zeigeFehler(e); return offen(); }
 
-      return { sp, cfg: S, konto: { mail: String(konto.username || '').toLowerCase(), name: String(konto.name || '') }, maildomain: E.maildomain };
+      return { sp, cfg: S, konto: { mail: String(konto.username || '').toLowerCase(), name: String(konto.name || '') }, maildomain: E.maildomain,
+        schreiben: !!window.FPKarteBearbeiten };
     })();
   }
 
