@@ -1,0 +1,215 @@
+/*
+  FP-Karte – Start
+  ----------------
+  Verbindet Ladeschicht, Kartenansicht und Gebäudeseite. Die Datenquelle kommt von außen als
+  window.FP_KARTE_QUELLE (Versprechen mit { sp, cfg, konto, maildomain } und für lokale Quellen dazu beschriftung, fussnote,
+  heute, eigeneParteien).
+  Lokal liefert sie quelle-lokal.js, im Betrieb quelle-sharepoint.js mit der Anmeldung an SharePoint.
+
+  Adresse: #g=<Nummer> öffnet die Gebäudeseite, #g=ohne die Aufgaben ohne Gebäude.
+  Mit ?ruhig läuft die Karte ohne Bewegung.
+*/
+(async function () {
+  'use strict';
+
+  const $ = (s) => document.querySelector(s);
+  const A = window.FPKarteAuswertung, GS = window.FPGebaeudeseite, h = GS.h;
+  const app = $('#app'), lade = $('#lade'), seiteEl = $('#seite'), gs = $('#gs');
+  const msg = (e) => (e && (e.errorMessage || e.message)) || String(e);
+  const lies = (k) => { try { return localStorage.getItem(k); } catch (e) { return null; } };
+  const schreib = (k, v) => { try { localStorage.setItem(k, v); } catch (e) { } };
+  const breit = () => window.innerWidth > 720;
+  const OHNE = '_ohne';
+
+  let Q;
+  try { Q = await window.FP_KARTE_QUELLE; if (!Q || !Q.sp || !Q.cfg) throw new Error('Keine Datenquelle eingebunden.'); }
+  catch (e) { lade.textContent = 'Die Datenquelle fehlt. ' + msg(e); return; }
+
+  const daten = window.FPKarteDaten.erzeugen({
+    sp: Q.sp, cfg: Q.cfg, konto: Q.konto, maildomain: Q.maildomain,
+    gebaeudeAusText: window.FPEinordnung ? (text, register) => window.FPEinordnung.gebaeudeFinden(text, '', register) : null,
+  });
+
+  let grund;
+  try { grund = await daten.grundlagen(); }
+  catch (e) { lade.textContent = 'Die Karte konnte nicht geladen werden. ' + msg(e); return; }
+
+  // Welche Angabe bei „offen bei“ das eigene Büro meint: von der Quelle, sonst aus dem Register (Feld eigene_parteien)
+  const eigeneParteien = Q.eigeneParteien || (Array.isArray(grund.register.eigene_parteien) ? grund.register.eigene_parteien : []);
+
+  const Z = {
+    filter: 'alle', wahl: null, heute: Q.heute || A.heuteIso(), team: [], ich: null,
+    aufgaben: [], fehlerAufgaben: '', index: new Map(), indexStand: '', indexFehlt: false,
+    bild: { gebaeude: new Map(), ohne: { aufgaben: 0 } }, dateien: new Map(), dateiFehler: new Map(),
+  };
+
+  const karte = window.FPKarteAnsicht.erzeugen($('#karte'), grund.karte, grund.gebaeude, {
+    beiWahl: (nr) => oeffnen(nr),
+    beiLeer: () => { if (breit()) schliessen(); },
+    beiAnsicht: (a) => { $('#w-ansicht').textContent = a.draufsicht ? 'Schrägansicht' : 'Draufsicht'; },
+    ohneBewegung: new URLSearchParams(location.search).has('ruhig'),      // ?ruhig: ohne Fahrten und Einblenden, für Bilder und Prüfungen
+  });
+  lade.remove();
+  window.FP_KARTE = { karte, daten, zustand: Z };           // zum Nachsehen in der Konsole und für die Prüfseite
+
+  const nord = grund.karte.meta && grund.karte.meta.nord;
+  $('#hinweis').textContent = (nord && nord.geprueft ? '' : 'Norden ungeprüft · ') + 'Höhen schematisch';
+
+  /* ---------- Rechnen und Zeigen ---------- */
+  function filterGueltig(f) { return f === 'alle' || (f === 'meine' && Z.ich) || Z.team.some((b) => b.kuerzel === f); }
+
+  function neuRechnen() {
+    if (!filterGueltig(Z.filter)) Z.filter = 'alle';
+    Z.bild = A.lagebild(grund.gebaeude, Z.aufgaben, Z.index, Z.filter, Z.ich, Z.heute);
+    karte.zustand(Z.bild.gebaeude);
+    $('#filter').replaceChildren(GS.filterLeiste(Z.team, Z.ich, Z.filter, A.zaehler(Z.aufgaben, Z.team, Z.ich), filterSetzen));
+    abseitsZeigen();
+    standZeigen();
+    if (Z.wahl) seiteZeigen(true);
+  }
+
+  function filterSetzen(f) {
+    if (!filterGueltig(f) || f === Z.filter) return;
+    Z.filter = f; schreib('fpk-filter', f);
+    neuRechnen();
+  }
+
+  function standZeigen() {
+    const teile = [];
+    if (Q.beschriftung) teile.push(Q.beschriftung);
+    if (Z.fehlerAufgaben) teile.push('Aufgaben nicht geladen');
+    teile.push(Z.indexFehlt ? 'ohne Auswertung der Mails' : Z.indexStand ? 'Stand ' + A.standText(Z.indexStand) : 'wird geladen …');
+    const e = $('#stand'); e.textContent = teile.join(' · '); e.classList.toggle('probe', !!Q.beschriftung || !!Z.fehlerAufgaben);
+  }
+
+  /* Gebäude mit Einträgen, die auf der Karte keinen Ort haben, und die Aufgaben ohne Gebäude */
+  function abseitsZeigen() {
+    const el = $('#abseits'), marken = [];
+    for (const [nr, e] of Z.bild.gebaeude) {
+      if (!e.relevant || karte.hat(nr)) continue;
+      marken.push(h('button', { type: 'button', class: 'schild relevant' + (e.dringend ? ' dringend' : '') + (Z.wahl === nr ? ' gewaehlt' : ''),
+        'aria-label': 'Gebäude ' + nr + ', nicht auf der Karte verortet', onclick: () => oeffnen(nr) }, h('span', { text: nr })));
+    }
+    if (Z.bild.ohne.aufgaben) {
+      marken.push(h('button', { type: 'button', class: 'schild' + (Z.wahl === OHNE ? ' gewaehlt' : ''), onclick: () => oeffnen(OHNE) },
+        h('span', { text: 'Ohne Gebäude · ' + Z.bild.ohne.aufgaben })));
+    }
+    el.hidden = !marken.length;
+    el.replaceChildren(h('span', { class: 'titel', text: 'Nicht auf der Karte' }), ...marken);
+  }
+
+  /* ---------- Gebäudeseite ---------- */
+  function seiteZeigen(behalten) {
+    const key = Z.wahl; if (!key) return;
+    const ohne = key === OHNE;
+    const nr = ohne ? null : key;
+    const datei = ohne ? null : Z.dateien.get(key) || null;
+    const amGebaeude = Z.aufgaben.filter((a) => (ohne ? !a.gebaeude.length : a.gebaeude.some((g) => g.nr === nr)));
+    GS.zeichnen(gs, {
+      art: ohne ? 'ohne' : 'gebaeude', g: ohne ? null : grund.gebaeude.get(key),
+      sicht: A.seite(nr, Z.aufgaben, datei, { filter: Z.filter, ich: Z.ich, heute: Z.heute, eigeneParteien }),
+      filter: Z.filter, ich: Z.ich, team: Z.team, zaehler: A.zaehler(amGebaeude, Z.team, Z.ich),
+      laedt: !ohne && !datei && !Z.dateiFehler.has(key), datei, fehler: Z.dateiFehler.get(key) || '', fehlerAufgaben: Z.fehlerAufgaben,
+      fussnote: Q.fussnote || '', aufDerKarte: !ohne && karte.hat(key),
+    }, { beiFilter: filterSetzen, beiZu: () => schliessen(), behalten });
+  }
+
+  function raender() { karte.rand({ r: breit() && Z.wahl ? seiteEl.offsetWidth : 0, o: breit() ? 56 : 104, u: breit() ? 0 : 56 }); }
+
+  function oeffnen(key, ausAdresse) {
+    if (key !== OHNE && !grund.gebaeude.has(key)) return false;
+    const neu = Z.wahl !== key;
+    Z.wahl = key;
+    seiteEl.classList.add('offen'); seiteEl.setAttribute('aria-hidden', 'false'); app.classList.add('seite-offen');
+    karte.waehle(key === OHNE ? null : key);
+    raender();
+    if (key !== OHNE && karte.hat(key)) karte.zeige(key);
+    seiteZeigen(!neu);
+    abseitsZeigen();
+    if (!ausAdresse) adresseSetzen(key);
+    if (!breit()) seiteEl.focus({ preventScroll: true });
+    if (key !== OHNE && !Z.dateien.has(key)) {
+      Z.dateiFehler.delete(key);
+      daten.gebaeude(key).then((d) => { Z.dateien.set(key, d); }, (e) => { Z.dateiFehler.set(key, msg(e)); })
+        .then(() => { if (Z.wahl === key) seiteZeigen(true); });
+    }
+    return true;
+  }
+
+  function schliessen(ausAdresse) {
+    if (!Z.wahl) return;
+    Z.wahl = null;
+    seiteEl.classList.remove('offen'); seiteEl.setAttribute('aria-hidden', 'true'); app.classList.remove('seite-offen');
+    karte.waehle(null);
+    raender(); abseitsZeigen();
+    if (!ausAdresse) adresseSetzen(null);
+    if (seiteEl.contains(document.activeElement)) $('#karte').focus({ preventScroll: true });
+  }
+
+  /* ---------- Adresse ---------- */
+  const ausAdresseLesen = () => { const m = /^#g=(.+)$/.exec(location.hash); if (!m) return null; const k = decodeURIComponent(m[1]); return k === 'ohne' ? OHNE : k; };
+  function adresseSetzen(key) {
+    const ziel = key ? '#g=' + encodeURIComponent(key === OHNE ? 'ohne' : key) : '';
+    if (location.hash === ziel || (!ziel && !location.hash)) return;
+    if (ziel) location.hash = ziel; else history.replaceState(null, '', location.pathname + location.search);
+  }
+  function ausAdresse() { const k = ausAdresseLesen(); if (k) { if (!oeffnen(k, true)) schliessen(true); } else schliessen(true); }
+  window.addEventListener('hashchange', ausAdresse);
+
+  /* ---------- Suche ---------- */
+  const suche = $('#suche'), treffer = $('#treffer');
+  let fund = [], an = 0;
+  function sucheZeigen() {
+    const q = suche.value.trim().toLowerCase();
+    if (!q) { treffer.hidden = true; fund = []; return; }
+    const alle = [...grund.gebaeude.values()];
+    const genau = grund.nummern.get(q.replace(/^geb\.?\s*/, ''));
+    const nachNr = alle.filter((g) => g.nr.toLowerCase().startsWith(q) || g.aliase.some((x) => x.toLowerCase().startsWith(q)));
+    const nachName = q.length >= 2 ? alle.filter((g) => !nachNr.includes(g) && g.name.toLowerCase().includes(q)) : [];
+    fund = nachNr.concat(nachName);
+    if (genau && !fund.some((g) => g.nr === genau)) fund.unshift(grund.gebaeude.get(genau));
+    const rang = (g) => { const e = Z.bild.gebaeude.get(g.nr); return (g.nr === genau ? 0 : 2) + (e && e.relevant ? 0 : 1); };
+    fund = fund.map((g, i) => ({ g, i })).sort((x, y) => rang(x.g) - rang(y.g) || x.i - y.i).map((x) => x.g).slice(0, 8);
+    an = 0;
+    treffer.replaceChildren(...(fund.length ? fund.map((g, i) => h('button', { type: 'button', class: i === 0 ? 'an' : '', onclick: () => sucheWahl(g.nr) },
+      h('span', { class: 'nr', text: g.nr }), h('span', { class: 'name', text: g.name }), h('span', { class: 'ort', text: karte.hat(g.nr) ? '' : 'nicht auf der Karte' })))
+      : [h('div', { class: 'leer', text: 'Kein Gebäude gefunden.' })]));
+    treffer.hidden = false;
+  }
+  function sucheWahl(nr) { suche.value = ''; treffer.hidden = true; fund = []; suche.blur(); oeffnen(nr); }
+  suche.addEventListener('input', sucheZeigen);
+  suche.addEventListener('focus', sucheZeigen);
+  suche.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter' && fund[an]) { ev.preventDefault(); sucheWahl(fund[an].nr); }
+    else if ((ev.key === 'ArrowDown' || ev.key === 'ArrowUp') && fund.length) {
+      ev.preventDefault();
+      an = (an + (ev.key === 'ArrowDown' ? 1 : fund.length - 1)) % fund.length;
+      [...treffer.children].forEach((b, i) => b.classList.toggle('an', i === an));
+    } else if (ev.key === 'Escape') { suche.value = ''; treffer.hidden = true; fund = []; ev.stopPropagation(); }
+  });
+  treffer.addEventListener('pointerdown', (ev) => ev.preventDefault());      // Feld behält den Fokus, der Klick kommt an
+  suche.addEventListener('blur', () => { treffer.hidden = true; });
+
+  /* ---------- Werkzeuge ---------- */
+  $('#w-plus').onclick = () => karte.zoom(1.6);
+  $('#w-minus').onclick = () => karte.zoom(1 / 1.6);
+  $('#w-ansicht').onclick = () => karte.ansichtWechseln();
+  $('#w-start').onclick = () => karte.start();
+  window.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && Z.wahl) schliessen(); });
+  const platzhalter = () => { suche.placeholder = breit() ? 'Gebäude suchen' : 'Gebäude'; };
+  window.addEventListener('resize', () => { raender(); platzhalter(); });
+  platzhalter();
+
+  /* ---------- Daten nachladen ---------- */
+  raender();
+  neuRechnen();
+  try { [Z.team, Z.ich] = await Promise.all([daten.team(), daten.ich()]); } catch (e) { Z.team = []; Z.ich = null; }
+  const gemerkt = lies('fpk-filter'); if (gemerkt && filterGueltig(gemerkt)) Z.filter = gemerkt;
+  const [a, i] = await Promise.allSettled([daten.aufgaben(), daten.index()]);
+  if (a.status === 'fulfilled') Z.aufgaben = a.value.liste; else Z.fehlerAufgaben = msg(a.reason);
+  if (i.status === 'fulfilled') { Z.index = i.value.gebaeude; Z.indexStand = i.value.stand; Z.indexFehlt = i.value.fehlt; } else Z.indexFehlt = true;
+  karte.messen();
+  neuRechnen();
+  ausAdresse();
+  document.documentElement.dataset.bereit = '1';
+})();

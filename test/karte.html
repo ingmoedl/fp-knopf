@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>FP-Karte</title>
+  <!-- Wie bei der Übersicht: Code nur aus dem eigenen Ordner, Verbindungen nur zu SharePoint und zur Microsoft-Anmeldung. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src https://ingburghausengmbh.sharepoint.com https://login.microsoftonline.com; frame-src 'self' https://login.microsoftonline.com; object-src 'none'; base-uri 'self'; form-action 'none'" />
+  <meta name="theme-color" content="#141619" />
+  <link rel="icon" href="data:," />
+  <link rel="stylesheet" href="karte.css?v=2611190746" />
+</head>
+<body>
+  <div id="app">
+    <div id="karte" class="karte" tabindex="0" role="application" aria-label="Werkskarte. Ein Gebäude anklicken öffnet die Gebäudeseite. Ziehen verschiebt, Mausrad vergrößert, Umschalt und Ziehen dreht.">
+      <canvas></canvas>
+      <div class="schilder"></div>
+    </div>
+
+    <header class="leiste">
+      <div class="marke">
+        <h1>FP-Karte</h1>
+        <div class="stand" id="stand">Daten werden geladen …</div>
+      </div>
+      <div class="steuer">
+        <div id="filter"></div>
+        <div class="suche">
+          <input id="suche" type="search" placeholder="Gebäude suchen" aria-label="Gebäude suchen" autocomplete="off" spellcheck="false" />
+          <div class="treffer" id="treffer" hidden></div>
+        </div>
+      </div>
+    </header>
+
+    <div class="abseits" id="abseits" hidden></div>
+    <div class="hinweis" id="hinweis"></div>
+    <div class="werkzeug" role="group" aria-label="Ansicht">
+      <button type="button" id="w-ansicht" aria-label="Zwischen Draufsicht und Schrägansicht wechseln">Draufsicht</button>
+      <button type="button" id="w-start" class="rund" aria-label="Ganze Karte zeigen, Ausrichtung zurücksetzen">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" /></svg>
+      </button>
+      <button type="button" id="w-plus" class="rund" aria-label="Vergrößern">+</button>
+      <button type="button" id="w-minus" class="rund" aria-label="Verkleinern">−</button>
+    </div>
+
+    <aside class="seite" id="seite" aria-label="Gebäudeseite" aria-hidden="true" tabindex="-1">
+      <div class="gs" id="gs"></div>
+    </aside>
+
+    <div class="lade" id="lade">Karte wird aufgebaut …</div>
+  </div>
+
+  <!-- Gebäudenummern aus Mappennamen: dieselbe Regel wie im Reiter „Vorschlag“. -->
+  <script src="msal-browser.min.js?v=1"></script>
+  <script src="einstellungen.js?v=5"></script>
+  <script src="einordnung.js?v=3"></script>
+  <script src="daten.js?v=2611190746"></script>
+  <script src="auswertung.js?v=2611190746"></script>
+  <script src="ansicht.js?v=2611190746"></script>
+  <script src="gebaeudeseite.js?v=2611190746"></script>
+  <!-- Anmeldung an SharePoint, gleiche App-Registrierung wie die Übersicht -->
+  <script src="quelle-sharepoint.js?v=2611190746"></script>
+  <script src="start.js?v=2611190746"></script>
+</body>
+</html>
