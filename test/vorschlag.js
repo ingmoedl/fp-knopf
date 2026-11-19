@@ -231,10 +231,41 @@
     };
   }
 
+  /* Monate, in denen der Vorschlag zu einer Mail liegen kann. Helfer und Reiter rechnen den Monat aus verschiedenen
+     Zeitangaben. Das weicht nur am Rand eines Monats ab: Am ersten Tag kommt der Vormonat dazu, am letzten der
+     Folgemonat. Sonst bleibt es bei einer Anfrage je Mail. */
+  function monate(eingang) {
+    const d = eingang instanceof Date ? eingang : new Date(eingang);
+    const m = (versatz) => { const x = new Date(d.getFullYear(), d.getMonth() + versatz, 1); return x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0'); };
+    const aus = [m(0)];
+    if (d.getDate() === 1) aus.push(m(-1));
+    if (d.getDate() === new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()) aus.push(m(1));
+    return aus;
+  }
+
   function erzeuge(container, dienste) {
-    let lauf = 0, reg = null, letzteMail = null, trotzdem = null, urteil = null;
+    let lauf = 0, reg = null, letzteMail = null, trotzdem = null, urteil = null, abgelegt = null;
 
     const meldung = (text, art) => h('div', { class: 'vs-meldung' + (art ? ' vs-' + art : '') }, text);
+
+    // Hinweis oben im Reiter, wenn die Mail schon abgelegt ist (Eintrag aus dem Speicher FP-Wissen)
+    function ablageZeigen() {
+      container.querySelectorAll('.vs-abgelegt').forEach((x) => x.remove());
+      const e = abgelegt;
+      if (!e) return;
+      const kom = (reg && reg.ablage && reg.ablage.kom) || 'der Ablage';
+      const ort = e.art === 'echt' ? 'in ' + kom + ' / ' + e.ziel : 'im Testordner unter ' + e.ziel;
+      const text = 'Abgelegt am ' + deDatum(String(e.wann || '').slice(0, 10)) + (e.von ? ' von ' + e.von : '') + ' ' + ort + ': ' + e.datei + '.';
+      container.insertBefore(h('div', { class: 'vs-meldung vs-abgelegt' }, text), container.firstChild);
+    }
+    async function ablageLaden(mail, hier) {
+      if (!dienste.ladeAblage || !mail) return;
+      let e = null;
+      try { e = await dienste.ladeAblage(mail); } catch (x) { e = null; }
+      if (hier !== lauf) return;
+      abgelegt = e || null;
+      ablageZeigen();
+    }
 
     async function ausfuehren(s, knopf, zeile, wahl) {
       const alt = knopf.textContent;
@@ -244,6 +275,7 @@
         zeile.querySelectorAll('.vs-ergebnis').forEach((x) => x.remove());
         zeile.appendChild(h('div', { class: 'vs-ergebnis vs-ok' }, text || 'Erledigt.'));
         knopf.textContent = alt; knopf.disabled = false;
+        if (s.art === 'ablegen') ablageLaden(letzteMail, lauf);
       } catch (e) {
         zeile.querySelectorAll('.vs-ergebnis').forEach((x) => x.remove());
         zeile.appendChild(h('div', { class: 'vs-ergebnis vs-fehler' }, 'Nicht ausgeführt: ' + (e && e.message ? e.message : e)));
@@ -314,7 +346,7 @@
       const tasten = [];
       const frage = (text, feld, werte) => h('div', { class: 'vs-urteil-frage' }, h('span', {}, text),
         h('span', { class: 'vs-urteil-wahl' }, werte.map(([wert, wort]) => {
-          const b = h('button', { class: 'vs-wahl', type: 'button', 'aria-pressed': 'false' }, wort);
+          const b = h('button', { class: 'vs-urteil-taste', type: 'button', 'aria-pressed': 'false' }, wort);
           b.onclick = () => { wahl[feld] = wert; zeichne(); };
           tasten.push({ b, feld, wert });
           return b;
@@ -406,7 +438,8 @@
       }
       container.appendChild(fuss);
       // Probebetrieb gilt, solange das Register ihn nicht ausdrücklich abschaltet
-      if (!reg || reg.probebetrieb !== false) container.appendChild(h('div', { class: 'vs-offen' }, 'Probebetrieb: Am Postfach ändert sich nichts. Entwürfe öffnen sich nur, Ablegen und Zuweisen werden vermerkt.'));
+      if (!reg || reg.probebetrieb !== false) container.appendChild(h('div', { class: 'vs-offen' }, 'Probebetrieb: Am Postfach ändert sich nichts. Entwürfe öffnen sich nur, Ablegen legt eine Kopie in den Testordner, Zuweisen wird vermerkt.'));
+      ablageZeigen();
     }
 
     /*
@@ -438,7 +471,9 @@
         return;
       }
       const regeln = wurzel.FPEinordnung.einordnen(mail, reg, (dienste.mappen && dienste.mappen()) || []);
+      abgelegt = null;
       male(zusammenfuehren(regeln, null, reg));
+      ablageLaden(mail, hier);        // läuft nebenher, der Hinweis erscheint, sobald der Eintrag da ist
       let gespeichert = null;
       try { gespeichert = await dienste.ladeVorschlag(mail); } catch (e) { gespeichert = null; }
       if (hier !== lauf || !gespeichert) return;
@@ -497,5 +532,5 @@
     return { zeige, neuLaden: () => zeige(letzteMail) };
   }
 
-  wurzel.FPVorschlag = { erzeuge, zusammenfuehren, beschriftung, urteilOrt, urteilSatz, auswerten };
+  wurzel.FPVorschlag = { erzeuge, zusammenfuehren, beschriftung, urteilOrt, urteilSatz, auswerten, monate };
 })(window);

@@ -53,9 +53,9 @@ body.vor .formular, body.vor #schon { display: none !important; }
 .vs-urteil-frage { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 6px; font-size: 12.5px; }
 .vs-urteil-wahl { display: inline-flex; gap: 4px; }
 .vs-urteil .vs-label { margin-top: 0; }
-.vs-wahl { flex: none; min-height: 28px; padding: 3px 10px; border: 1px solid var(--line); border-radius: 4px; background: #fff; color: var(--ink); font: inherit; font-size: 12.5px; white-space: nowrap; cursor: pointer; }
-.vs-wahl[aria-pressed="true"] { border-color: var(--accent); background: var(--accent); color: #fff; }
-.vs-wahl:focus-visible, .vs-urteil .vs-knopf:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.vs-urteil-taste { flex: none; min-height: 28px; padding: 3px 10px; border: 1px solid var(--line); border-radius: 4px; background: #fff; color: var(--ink); font: inherit; font-size: 12.5px; white-space: nowrap; cursor: pointer; }
+.vs-urteil-taste[aria-pressed="true"] { border-color: var(--accent); background: var(--accent); color: #fff; }
+.vs-urteil-taste:focus-visible, .vs-urteil .vs-knopf:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .vs-urteil-hilfe { margin-top: 6px; font-size: 11.5px; line-height: 1.4; color: var(--muted); }
 .vs-urteil-fuss { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
 .vs-urteil-status { font-size: 12px; color: var(--muted); }
@@ -67,3 +67,6 @@ body.vor .formular, body.vor #schon { display: none !important; }
 .vs-auswertung-zeile.vs-gut { color: #0b6a0b; font-weight: 600; }
 .vs-auswertung-zeile.vs-klein { font-size: 11.5px; color: var(--muted); border-bottom: none; }
 .vs-fuss .vs-link + .vs-link { margin-left: 10px; }
+
+/* Hinweis: Die Mail ist schon abgelegt */
+.vs-meldung.vs-abgelegt { background: #e8f3e8; border: 1px solid #b7d7b7; color: var(--ink); overflow-wrap: anywhere; }

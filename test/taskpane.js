@@ -382,14 +382,20 @@ function vorschlagDienste() {
       return vorschlagRegister;
     },
     // Der Helfer legt je Mail eine Datei ab: vorschlaege/<JJJJ-MM des Eingangs>/<Kurz-Hash der Message-ID>.json
+    // Gesucht wird im Monat des Eingangs, am ersten und letzten Tag eines Monats auch im Nachbarmonat: Helfer und
+    // Reiter rechnen den Monat aus verschiedenen Zeitangaben.
     ladeVorschlag: async (mail) => {
-      const d = mail.eingang instanceof Date ? mail.eingang : new Date(mail.eingang);
-      const monat = d.getFullYear() + "-" + zweistellig(d.getMonth() + 1);
-      try { return await datei(`${CONFIG.wissenRel}/vorschlaege/${monat}/${await kurzHash(mail.schluessel)}.json`); }
-      catch (e) { if (e.status === 404) return null; throw e; }
+      const hash = await kurzHash(mail.schluessel);
+      for (const monat of window.FPVorschlag.monate(mail.eingang)) {
+        try { return await datei(`${CONFIG.wissenRel}/vorschlaege/${monat}/${hash}.json`); }
+        catch (e) { if (e.status !== 404) throw e; }
+      }
+      return null;
     },
     mappen: () => mappen.map((m) => m.name),
     aktion: vorschlagAktion,
+    // Liegt die Mail schon in der Ablage? Eintrag aus FP-Wissen/ablage, sonst nichts.
+    ladeAblage: (mail) => ablage().schonAbgelegt(mail),
     // Urteil über die Bewertung: korrekturen/<JJJJ-MM des Eingangs>/<Kurz-Hash>_<Kürzel>.json, je Mail und Person
     ladeUrteil: async (mail) => {
       const kuerzel = (ich() || {}).kuerzel;
@@ -488,7 +494,13 @@ async function vorschlagAktion(s, wahl) {
       el("suche").value = String(s.mappe || "").replace(/\s*\[[0-9a-f]{8}\]\s*$/i, "");
       zeigeMappen();
       return "";
-    case "ablegen":
+    case "ablegen": {
+      // Legt eine Kopie der Mail als Datei ab (ablage.js). Die Mail bleibt im Postfach, wo sie ist.
+      const partei = wahl.ziel || s.ziel_kom;
+      if (!partei) throw new Error("Kein Ordner gewählt.");
+      const mail = { schluessel: it.internetMessageId || it.itemId || "", betreff: it.subject || "", eingang: it.dateTimeCreated || new Date() };
+      return window.FPAblage.meldung(await ablage().ablegen(mail, partei, s, wahl), vorschlagRegister);
+    }
     case "anhang_ablegen":
     case "neu_bewerten":
       return auftragSchreiben(it, s, wahl);
@@ -497,7 +509,28 @@ async function vorschlagAktion(s, wahl) {
   }
 }
 
-// Verschieben und Ablegen kann nur der Helfer am PC. Der Reiter schreibt dafür einen Auftrag nach FP-Wissen.
+// Ablage per Klick: im Probebetrieb in den Testordner in FP-Wissen, echt nur für Personen aus ablage_echt im Register.
+let ablageModul = null;
+function ablage() {
+  if (!ablageModul) {
+    ablageModul = window.FPAblage.erzeugen({
+      sp, web: CONFIG.web, wissenRel: CONFIG.wissenRel,
+      register: () => vorschlagRegister || {},
+      kuerzel: () => (ich() || {}).kuerzel || "",
+      hash: kurzHash,
+      mailBytes: async () => {
+        const bin = atob(await mailAlsDatei());
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        return bytes;
+      },
+      jetzt: () => new Date(),
+    });
+  }
+  return ablageModul;
+}
+
+// Anhänge ablegen und neu bewerten kann nur der Helfer am PC. Der Reiter schreibt dafür einen Auftrag nach FP-Wissen.
 // Der Auftrag hält auch fest, ob das Ziel dem Vorschlag entsprach. Daraus entsteht später die Trefferquote.
 async function auftragSchreiben(it, s, wahl) {
   const zeit = new Date();
