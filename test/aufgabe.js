@@ -27,7 +27,8 @@
                  schreiben, arbeit, meldung { text, art, rueck }, zurueck (Wort für die Taste zurück), outlook, firmen,
                  host (für Verweise auf Dateien), notizMail (vorgewählte Mail im Feld für den neuen Eintrag) }
     rueckrufe  { beiZurueck(), beiZu(), beiErledigt(a), beiOeffnen(a), beiFaellig(a, iso), beiFirma(a, text),
-                 beiZuweisung(a, text), beiNotiz(a, text, datei), beiRueck(), beiOutlook(rel), beiNotizMail(name) }
+                 beiZuweisung(a, text), beiNotiz(a, text, datei), beiLoeschen(a, { roh, gleiche, mitMail }), beiRueck(),
+                 beiOutlook(rel), beiNotizMail(name) }
 */
 (function (wurzel) {
   'use strict';
@@ -41,19 +42,25 @@
   const kern = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9äöüß]+/g, ' ').trim();
   const gleicherBetreff = (a, b) => !!a && !!b && (a === b || (Math.min(a.length, b.length) >= 10 && (a.startsWith(b) || b.startsWith(a))));
 
-  /* Zerlegt den Verlauf in Einträge. Jede Zeile bleibt, wie sie ist. */
-  function eintraege(text) {
+  /* Teilt den Verlauf in Blöcke von Zeilen, je Eintrag einer. Jede Zeile bleibt, wie sie ist: Mit Zeilenumbrüchen
+     wieder zusammengesetzt ergeben die Blöcke genau den Text. Das Löschen in bearbeiten.js teilt mit derselben Regel. */
+  function bloecke(text) {
     const aus = [];
     String(text || '').replace(/\r\n?/g, '\n').split('\n').forEach((z) => {
       if (!aus.length || EINTRAG.test(z)) aus.push([]);
       aus[aus.length - 1].push(z);
     });
-    return aus.map((zeilen, i) => {
+    return aus;
+  }
+
+  /* Zerlegt den Verlauf in Einträge. roh ist der Eintrag, wie er im Verlauf steht, mit allen seinen Zeilen. */
+  function eintraege(text) {
+    return bloecke(text).map((zeilen, i) => {
       const inhalt = zeilen.filter((z) => !MAILZEILE.test(z));
       while (inhalt.length && !inhalt[inhalt.length - 1].trim()) inhalt.pop();
       const m = zeilen.map((z) => MAILZEILE.exec(z)).find(Boolean);
       const t = inhalt.join('\n'), k = KOPF.exec(t);
-      return { i, zeilen, text: t, datei: m ? m[1] : '', datum: k ? k[2] : '', kz: k ? k[3] || '' : '', rest: k ? k[4] : t };
+      return { i, zeilen, roh: zeilen.join('\n'), text: t, datei: m ? m[1] : '', datum: k ? k[2] : '', kz: k ? k[3] || '' : '', rest: k ? k[4] : t };
     }).filter((e) => e.text.trim() || e.datei);
   }
 
@@ -81,7 +88,8 @@
 
   /*
     Verlauf und Mails zu einer Folge von Posten, neueste oben.
-      { art: 'notiz', tag, datum, kz, text, mails: [Datei], fehlt: Dateiname, der nicht mehr in der Mappe liegt }
+      { art: 'notiz', tag, datum, kz, text, mails: [Datei], fehlt: Dateiname, der nicht mehr in der Mappe liegt,
+        roh: der Eintrag wie im Verlauf, gleiche: Zahl gleichlautender Einträge darüber (beides für das Löschen) }
       { art: 'mail', tag, mail: Datei }
     dateien: was sonst in der Mappe liegt.
   */
@@ -90,7 +98,10 @@
     const mails = infos.filter((d) => d.mail);
     const vergeben = new Set();
     let vorher = '';
+    const gesehen = new Map();
     const notizen = eintraege(verlauf).map((e, nr) => {
+      const gleiche = gesehen.get(e.roh) || 0;
+      gesehen.set(e.roh, gleiche + 1);
       const zu = [];
       if (e.datei) {
         const m = mails.find((x) => x.name.toLowerCase() === e.datei.toLowerCase());
@@ -104,7 +115,7 @@
       zu.forEach((m) => vergeben.add(m.name));
       const tag = eintragTag(e.datum, heute) || vorher;       // Text ohne Datum bleibt bei dem Eintrag davor
       vorher = tag;
-      return { art: 'notiz', tag, datum: e.datum, kz: e.kz, text: e.rest.trim(), mails: zu, fehlt: e.datei && !zu.length ? e.datei : '', nr };
+      return { art: 'notiz', tag, datum: e.datum, kz: e.kz, text: e.rest.trim(), mails: zu, fehlt: e.datei && !zu.length ? e.datei : '', nr, roh: e.roh, gleiche };
     });
     const allein = mails.filter((m) => !vergeben.has(m.name))
       .sort((a, b) => (a.tag + a.uhr < b.tag + b.uhr ? 1 : -1))
@@ -248,6 +259,9 @@
       for (const p of z.posten) {
         if (p.art === 'mail') { verlauf.append(h('div', { class: 'as-posten nur-mail' }, mailKarte(p.mail))); continue; }
         const kopfzeile = h('div', { class: 'as-notizkopf' }, h('span', { class: 'tag', text: p.datum || '' }), p.kz ? h('span', { class: 'wer', text: p.kz }) : null);
+        // Löschen nimmt den Eintrag aus dem Verlauf. Eine zugeordnete Mail bleibt in der Mappe und steht danach allein.
+        if (darf && !erledigt) kopfzeile.append(h('button', { type: 'button', class: 'weg', 'aria-label': 'Eintrag löschen' + (p.datum ? ' vom ' + p.datum : ''),
+          onclick: () => o.beiLoeschen && o.beiLoeschen(a, { roh: p.roh, gleiche: p.gleiche, mitMail: p.mails.length > 0 }) }, 'Löschen'));
         const posten = h('div', { class: 'as-posten' }, kopfzeile, h('p', { class: 'as-notiz', text: p.text }));
         for (const d of p.mails) posten.append(mailKarte(d));
         if (p.fehlt) posten.append(h('div', { class: 'as-fehlt', text: 'Die Mail „' + p.fehlt + '“ liegt nicht mehr in der Mappe.' }));
@@ -285,5 +299,5 @@
     if (m.notizMail && o.fokus) { const f = root.querySelector('.as-neu input.notiz'); if (f) f.focus({ preventScroll: false }); }
   }
 
-  wurzel.FPKarteAufgabe = { eintraege, eintragTag, dateiInfo, zeitstrahl, kurzFinden, outlookLink, zuweisungUmschalten, schnell, zeichnen };
+  wurzel.FPKarteAufgabe = { bloecke, eintraege, eintragTag, dateiInfo, zeitstrahl, kurzFinden, outlookLink, zuweisungUmschalten, schnell, zeichnen };
 })(typeof window !== 'undefined' ? window : this);

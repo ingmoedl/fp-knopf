@@ -17,6 +17,7 @@
     faelligSetzen   nur, wenn die Fälligkeit noch die ist, die die Karte zeigt
     firmaSetzen, zuweisungSetzen   nur, wenn das Feld noch den Wert hat, den die Karte zeigt
     notiz           immer, die neue Zeile kommt vor den Verlauf, wie er in diesem Augenblick ist
+    eintragLoeschen nur, wenn der Eintrag noch genau so im Verlauf steht, wie die Karte ihn zeigt
   Dass sich an der Aufgabe sonst etwas getan hat (eine Mail kam in die Mappe, jemand hat eine Notiz angefügt),
   ist kein Hindernis. Die erste Fassung verglich den Zeitpunkt der letzten Änderung und lehnte am 19.11.2026
   im Betrieb eine Änderung ab, obwohl niemand dazwischen war.
@@ -81,6 +82,20 @@
       return stand(a);
     }
 
+    /* Verlauf in Einträge teilen. Die Regel steht in aufgabe.js, damit Anzeige und Löschen dieselbe benutzen. */
+    const teilen = (text) => {
+      const AS = wurzel.FPKarteAufgabe;
+      if (!AS || typeof AS.bloecke !== 'function') throw new Error('Der Verlauf lässt sich hier nicht bearbeiten.');
+      const t = String(text || '');
+      return t ? AS.bloecke(t).map((zeilen) => zeilen.join('\n')) : [];
+    };
+    const alsEintrag = (roh) => {
+      const r = String(roh == null ? '' : roh).replace(/\r\n?/g, '\n');
+      if (!r.trim()) throw new Error('Der Eintrag ist leer.');
+      if (r.length > 20000) throw new Error('Der Eintrag ist zu lang.');
+      return r;
+    };
+
     return {
       stand, lesen,
       erledigen: async (a) => {
@@ -126,6 +141,38 @@
         const heute = o.heute();
         const zeile = `${heute.slice(8, 10)}.${heute.slice(5, 7)}. ${(ich && ich.kuerzel) || '?'}: ${t}` + (d ? '\n✉ ' + d : '');
         return schreiben(a, [feld('FPVerlauf', zeile + (x && x.FPVerlauf ? '\n' + x.FPVerlauf : ''))]);
+      },
+      /* Nimmt genau einen Eintrag aus dem Verlauf. roh ist der Eintrag, wie die Seite ihn gelesen hat, mit allen
+         Zeilen. gleiche zählt gleichlautende Einträge darüber, damit von zwei gleichen der gemeinte fällt. Steht
+         der Eintrag so nicht mehr im Verlauf, wird nichts geschrieben. Alle anderen Einträge bleiben Zeichen für
+         Zeichen, wie sie sind. Die Bibliothek führt Versionen, der alte Verlauf lässt sich dort zurückholen.
+         Rückgabe: Stand, dazu geloescht { roh, stelle, danach } für „Rückgängig“. */
+      eintragLoeschen: async (a, roh, gleiche) => {
+        const r = alsEintrag(roh);
+        const x = await o.sp(`${eintrag(a)}?$select=FPVerlauf`);
+        const teile = teilen(x && x.FPVerlauf);
+        const treffer = teile.map((t, i) => (t === r ? i : -1)).filter((i) => i >= 0);
+        const k = treffer[Number.isInteger(gleiche) && gleiche > 0 ? gleiche : 0];
+        if (k === undefined) {
+          const e = new Error('Der Eintrag steht so nicht mehr im Verlauf. Es wurde nichts gelöscht.');
+          e.neuLaden = true;
+          throw e;
+        }
+        const danach = k + 1 < teile.length ? teile[k + 1] : null;
+        teile.splice(k, 1);
+        const s = await schreiben(a, [feld('FPVerlauf', teile.join('\n'))]);
+        return Object.assign(s, { geloescht: { roh: r, stelle: k, danach } });
+      },
+      /* Setzt einen gelöschten Eintrag wieder ein: vor den Eintrag, der unter ihm stand. Gibt es den nicht mehr,
+         an die alte Stelle, höchstens ans Ende. */
+      eintragZurueck: async (a, g) => {
+        const r = alsEintrag(g && g.roh);
+        const x = await o.sp(`${eintrag(a)}?$select=FPVerlauf`);
+        const teile = teilen(x && x.FPVerlauf);
+        let k = g.danach == null ? teile.length : teile.indexOf(String(g.danach));
+        if (k < 0) k = Math.min(Math.max(0, Number.isInteger(g.stelle) ? g.stelle : 0), teile.length);
+        teile.splice(k, 0, r);
+        return schreiben(a, [feld('FPVerlauf', teile.join('\n'))]);
       },
     };
   }

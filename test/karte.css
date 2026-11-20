@@ -231,6 +231,9 @@ button.gs-zeile:focus-visible, .as-zurueck:focus-visible, .as-taste:focus-visibl
 .as-posten { display: grid; gap: 6px; padding: 10px 12px; border: 1px solid var(--linie); border-radius: 8px; background: var(--flaeche-2); }
 .as-posten.nur-mail { padding: 0; border: 0; background: transparent; }
 .as-notizkopf { display: flex; align-items: baseline; gap: 8px; font: 500 11.5px/1.2 var(--font-daten); color: var(--text-3); }
+.as-notizkopf .weg { margin-left: auto; padding: 2px 4px; border: 0; background: transparent; color: var(--text-3); font: 500 11.5px/1.2 var(--font-text); cursor: pointer; border-radius: 4px; }
+.as-notizkopf .weg:hover { color: var(--text); text-decoration: underline; }
+.as-notizkopf .weg:focus-visible { outline: 2px solid var(--stahl); outline-offset: 1px; }
 .as-notizkopf .wer { padding: 2px 6px; border-radius: 5px; background: var(--flaeche); color: var(--text-2); font: 700 10.5px/1 var(--font-text); letter-spacing: .04em; }
 .as-notiz { margin: 0; font: 400 13.5px/1.45 var(--font-text); color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
 .as-mail { display: grid; gap: 6px; padding: 9px 11px; border: 1px solid var(--linie); border-left: 3px solid var(--stahl); border-radius: 8px; background: var(--flaeche); }

@@ -44,6 +44,7 @@
     aufgaben: [], fehlerAufgaben: '', index: new Map(), indexStand: '', indexFehlt: false,
     bild: { gebaeude: new Map(), ohne: { aufgaben: 0 } }, dateien: new Map(), dateiFehler: new Map(),
     arbeit: null, meldung: null, zurueck: null,       // laufendes Speichern, Rückmeldung, zuletzt Erledigtes
+    geloescht: null,                                  // zuletzt gelöschter Eintrag im Verlauf: { a, g } für „Rückgängig“
     aufgabe: null,                                    // offene Aufgabenseite: { a, laedt, fehler, stand, verlauf, dateien, notizMail }
     mails: null,                                      // Bewertungen des Helfers zum Nachschlagen der Kurzfassungen, einmal geladen
   };
@@ -137,7 +138,7 @@
     if (Z.aufgabe && AS) { aufgabeZeigen(behalten, fokus); return; }
     const bearbeitung = { meldung: Z.meldung };
     const rueckrufe = { beiFilter: filterSetzen, beiFirmen: firmenSetzen, beiZu: () => schliessen(), behalten,
-      beiAufgabe: AS && leser ? (a) => aufgabeOeffnen(a.id) : null, beiRueck: zurueckNehmen };
+      beiAufgabe: AS && leser ? (a) => aufgabeOeffnen(a.id) : null, beiRueck: rueck };
     if (key === LISTE) {
       GS.zeichnenListe(gs, Object.assign({
         liste: A.liste(Z.aufgaben, grund.gebaeude, { filter: Z.filter, ich: Z.ich, heute: Z.heute, firmen: Z.firmen }),
@@ -172,7 +173,7 @@
       behalten, fokus,
       beiZu: () => schliessen(), beiZurueck: () => aufgabeSchliessen(),
       beiErledigt: erledigt, beiOeffnen: () => zurueckNehmen(), beiFaellig: faelligSetzen, beiFirma: firmaSetzen, beiZuweisung: zuweisungSetzen,
-      beiNotiz: notiz, beiRueck: zurueckNehmen,
+      beiNotiz: notiz, beiLoeschen: eintragLoeschen, beiRueck: rueck,
       beiOutlook: (rel) => { location.href = AS.outlookLink(rel); },
       beiNotizMail: (name) => { if (Z.aufgabe) { Z.aufgabe.notizMail = name; seiteZeigen(true, true); } },
     });
@@ -214,7 +215,8 @@
   function aufgabeSchliessen(ausAdresse) {
     if (!Z.aufgabe) return;
     Z.aufgabe = null;
-    if (Z.meldung && !Z.meldung.rueck) Z.meldung = null;
+    // „Rückgängig“ für einen gelöschten Eintrag gibt es nur auf der Aufgabenseite, für Erledigtes auch danach
+    if (Z.meldung && Z.meldung.rueck !== true) { Z.meldung = null; Z.geloescht = null; }
     if (!ausAdresse) adresseSetzen(Z.wahl);
     neuRechnen();
   }
@@ -255,6 +257,7 @@
     } catch (e) {
       Z.meldung = { text: msg(e), art: 'warn' };
       if (e && e.konflikt && e.stand) { standUebernehmen(a, e.stand); Z.meldung.text += ' Die Anzeige ist jetzt aktuell.'; }
+      if (e && e.neuLaden) { neuLaden = true; Z.meldung.text += ' Die Anzeige ist jetzt aktuell.'; }
     }
     Z.arbeit = null;
     neuRechnen();
@@ -303,6 +306,23 @@
     const a = original(k);
     aendern(a, () => bearb.notiz(a, text, datei), () => { if (Z.aufgabe && Z.aufgabe.a === a) Z.aufgabe.notizMail = ''; return true; }, datei ? 'Eintrag an der Mail gespeichert.' : 'Eintrag gespeichert.');
   }
+
+  /* Eintrag aus dem Verlauf nehmen. Die Mail dazu bleibt in der Mappe. */
+  function eintragLoeschen(k, p) {
+    const a = original(k);
+    aendern(a, () => bearb.eintragLoeschen(a, p.roh, p.gleiche), (s) => {
+      Z.geloescht = { a, g: s.geloescht };
+      Z.meldung = { text: p.mitMail ? 'Eintrag gelöscht. Die Mail bleibt in der Mappe.' : 'Eintrag gelöscht.', art: 'ok', rueck: 'eintrag' };
+      return true;
+    }, '');
+  }
+  function eintragZurueck() {
+    const x = Z.geloescht;
+    if (!x) return;
+    aendern(x.a, () => bearb.eintragZurueck(x.a, x.g), () => { Z.geloescht = null; return true; }, 'Eintrag wieder eingesetzt.');
+  }
+  // „Rückgängig“ in der Meldung: je nachdem, was zuletzt geschah
+  function rueck() { if (Z.meldung && Z.meldung.rueck === 'eintrag') eintragZurueck(); else zurueckNehmen(); }
 
   function raender() { karte.rand({ r: breit() && Z.wahl ? seiteEl.offsetWidth : 0, o: breit() ? 56 : 104, u: breit() ? 0 : 56 }); }
 
