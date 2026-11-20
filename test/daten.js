@@ -15,6 +15,7 @@
                               karte/gebaeude.json     Gebäude mit Lage und Höhe
                               regeln/gebaeude.json    Register (Zugehörigkeiten, Namen)
                               gebaeude/_index.json    Übersicht je Gebäude
+                              gebaeude/_mails.json    je bewerteter Mail Eingang, Betreff und Kurzfassung
                               gebaeude/<Nr>.json      Mails, Fristen und offene Punkte je Gebäude
 
   FPKarteDaten.erzeugen({ sp, cfg, konto, gebaeudeAusText }) liefert:
@@ -244,7 +245,15 @@
       return gebaeudeDatei(await datei(cfg.wissenRel, 'gebaeude/' + String(nr) + '.json'), String(nr), name);
     });
 
-    return { grundlagen, team, ich, aufgaben, index, gebaeude, vergessen: () => merke.clear() };
+    /* Bewertungen des Helfers zum Nachschlagen der Kurzfassungen auf der Aufgabenseite. Fehlt die Datei, ist die
+       Liste leer. Jeder Eintrag wird auf seine Form geprüft, der Text kommt aus Mails. */
+    const mails = () => einmal('mails', async () => {
+      const d = await datei(cfg.wissenRel, 'gebaeude/_mails.json');
+      return (d && Array.isArray(d.mails) ? d.mails : []).filter((x) => x && typeof x.eingang === 'string' && typeof x.kurz === 'string' && x.kurz.trim())
+        .map((x) => ({ eingang: x.eingang, betreff: String(x.betreff || ''), kurz: x.kurz.trim().slice(0, 600), art: String(x.art || ''), von: String(x.von || '') }));
+    });
+
+    return { grundlagen, team, ich, aufgaben, index, gebaeude, mails, vergessen: () => merke.clear() };
   }
 
   wurzel.FPKarteDaten = { erzeugen, teamPruefen, gebaeudeListe, nummernIndex, spalteLesen, nummernVorn, aufgabeAusZeile, doppelteZusammenlegen, gebaeudeDatei };

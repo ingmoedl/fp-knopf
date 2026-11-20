@@ -14,7 +14,7 @@
   'use strict';
 
   const $ = (s) => document.querySelector(s);
-  const A = window.FPKarteAuswertung, GS = window.FPGebaeudeseite, h = GS.h;
+  const A = window.FPKarteAuswertung, GS = window.FPGebaeudeseite, AS = window.FPKarteAufgabe, h = GS.h;
   const app = $('#app'), lade = $('#lade'), seiteEl = $('#seite'), gs = $('#gs');
   const msg = (e) => (e && (e.errorMessage || e.message)) || String(e);
   const lies = (k) => { try { return localStorage.getItem(k); } catch (e) { return null; } };
@@ -43,10 +43,15 @@
     filter: 'alle', firmen: [], firmenOffen: false, wahl: null, heute: Q.heute || A.heuteIso(), team: [], ich: null,
     aufgaben: [], fehlerAufgaben: '', index: new Map(), indexStand: '', indexFehlt: false,
     bild: { gebaeude: new Map(), ohne: { aufgaben: 0 } }, dateien: new Map(), dateiFehler: new Map(),
-    offen: null, arbeit: null, meldung: null, zurueck: null,       // Bearbeitung: offene Aufgabe, laufendes Speichern, Rückmeldung, zuletzt Erledigtes
+    arbeit: null, meldung: null, zurueck: null,       // laufendes Speichern, Rückmeldung, zuletzt Erledigtes
+    aufgabe: null,                                    // offene Aufgabenseite: { a, laedt, fehler, stand, verlauf, dateien, notizMail }
+    mails: null,                                      // Bewertungen des Helfers zum Nachschlagen der Kurzfassungen, einmal geladen
   };
-  const bearb = Q.schreiben && window.FPKarteBearbeiten
+  // Lesen geht immer, geschrieben wird nur, wenn die Quelle es erlaubt
+  const leser = window.FPKarteBearbeiten
     ? window.FPKarteBearbeiten.erzeugen({ sp: Q.sp, cfg: Q.cfg, ich: () => Z.ich, heute: () => Q.heute || A.heuteIso() }) : null;
+  const bearb = Q.schreiben ? leser : null;
+  const handy = () => /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent));
 
   const karte = window.FPKarteAnsicht.erzeugen($('#karte'), grund.karte, grund.gebaeude, {
     beiWahl: (nr) => oeffnen(nr),
@@ -127,11 +132,12 @@
   }
 
   /* ---------- Gebäudeseite ---------- */
-  function seiteZeigen(behalten) {
+  function seiteZeigen(behalten, fokus) {
     const key = Z.wahl; if (!key) return;
-    const bearbeitung = { bearbeiten: !!bearb, offen: Z.offen, arbeit: Z.arbeit, meldung: Z.meldung };
+    if (Z.aufgabe && AS) { aufgabeZeigen(behalten, fokus); return; }
+    const bearbeitung = { meldung: Z.meldung };
     const rueckrufe = { beiFilter: filterSetzen, beiFirmen: firmenSetzen, beiZu: () => schliessen(), behalten,
-      beiBearbeiten: bearbeitenSetzen, beiErledigt: erledigt, beiFaellig: faelligSetzen, beiNotiz: notiz, beiRueck: zurueckNehmen };
+      beiAufgabe: AS && leser ? (a) => aufgabeOeffnen(a.id) : null, beiRueck: zurueckNehmen };
     if (key === LISTE) {
       GS.zeichnenListe(gs, Object.assign({
         liste: A.liste(Z.aufgaben, grund.gebaeude, { filter: Z.filter, ich: Z.ich, heute: Z.heute, firmen: Z.firmen }),
@@ -149,27 +155,89 @@
       sicht: A.seite(nr, Z.aufgaben, datei, { filter: Z.filter, ich: Z.ich, heute: Z.heute, eigeneParteien, firmen: Z.firmen }),
       filter: Z.filter, firmen: Z.firmen, ich: Z.ich, team: Z.team, zaehler: A.zaehler(A.nachFirmen(amGebaeude, Z.firmen), Z.team, Z.ich),
       laedt: !ohne && !datei && !Z.dateiFehler.has(key), datei, fehler: Z.dateiFehler.get(key) || '', fehlerAufgaben: Z.fehlerAufgaben,
-      fussnote: Q.fussnote || '', aufDerKarte: !ohne && karte.hat(key),
-      bearbeiten: bearbeitung.bearbeiten, offen: bearbeitung.offen, arbeit: bearbeitung.arbeit, meldung: bearbeitung.meldung,
+      fussnote: Q.fussnote || '', aufDerKarte: !ohne && karte.hat(key), meldung: bearbeitung.meldung,
     }, rueckrufe);
   }
 
-  /* ---------- Bearbeiten ---------- */
-  // Die Gebäudeseite arbeitet mit Kopien. Geändert wird die Aufgabe im Zustand.
-  const original = (k) => Z.aufgaben.find((x) => x.id === (k && k.id)) || null;
-
-  function bearbeitenSetzen(id) {
-    if (Z.arbeit) return;
-    Z.offen = id;
-    if (Z.meldung && Z.meldung.id !== id) Z.meldung = null;
-    seiteZeigen(true);
+  /* ---------- Aufgabenseite ---------- */
+  const zurueckWort = () => (Z.wahl === LISTE ? 'Liste' : Z.wahl === OHNE ? 'Ohne Gebäude' : 'Gebäude ' + Z.wahl);
+  function aufgabeZeigen(behalten, fokus) {
+    const s = Z.aufgabe;
+    AS.zeichnen(gs, {
+      a: s.a, team: Z.team, heute: Z.heute, stand: s.stand, laedt: s.laedt, fehler: s.fehler, verlauf: s.verlauf, dateien: s.dateien,
+      mails: Z.mails || [], schreiben: !!bearb, arbeit: Z.arbeit === s.a.id, meldung: Z.meldung, zurueck: zurueckWort(),
+      outlook: !handy(), host: Q.cfg.host || '', notizMail: s.notizMail || '',
+      firmen: [...new Set(Z.aufgaben.map((x) => x.firma).filter(Boolean))].sort((x, y) => x.localeCompare(y, 'de')),
+    }, {
+      behalten, fokus,
+      beiZu: () => schliessen(), beiZurueck: () => aufgabeSchliessen(),
+      beiErledigt: erledigt, beiOeffnen: () => zurueckNehmen(), beiFaellig: faelligSetzen, beiFirma: firmaSetzen, beiZuweisung: zuweisungSetzen,
+      beiNotiz: notiz, beiRueck: zurueckNehmen,
+      beiOutlook: (rel) => { location.href = AS.outlookLink(rel); },
+      beiNotizMail: (name) => { if (Z.aufgabe) { Z.aufgabe.notizMail = name; seiteZeigen(true, true); } },
+    });
   }
+
+  /* Öffnet die Aufgabe und holt Stand, Verlauf und die Dateien der Mappe. Die Mappe selbst wird aufgelistet,
+     nie die ganze Bibliothek. Die Bewertungen des Helfers kommen einmal je Sitzung dazu. */
+  function aufgabeOeffnen(id, ausAdresse) {
+    const a = Z.aufgaben.find((x) => x.id === id) || (Z.aufgabe && Z.aufgabe.a.id === id ? Z.aufgabe.a : null);
+    if (!a || !AS || !leser) return false;
+    if (!Z.wahl) return false;
+    Z.meldung = null;
+    Z.aufgabe = { a, laedt: true, fehler: '', stand: null, verlauf: '', dateien: [], notizMail: '' };
+    if (!ausAdresse) adresseSetzen(Z.wahl);
+    seiteZeigen();
+    aufgabeLaden();
+    return true;
+  }
+  async function aufgabeLaden() {
+    const s = Z.aufgabe; if (!s) return;
+    const a = s.a;
+    try {
+      const ordner = `${Q.cfg.web}/_api/web/GetFolderByServerRelativePath(decodedurl='${encodeURIComponent(a.rel.replace(/'/g, "''"))}')/Files?$select=Name,ServerRelativeUrl,Length&$top=500`;
+      const [stand, dateien] = await Promise.all([leser.lesen(a), Q.sp(ordner)]);
+      if (Z.mails === null) {
+        try { Z.mails = await daten.mails(); } catch (e) { Z.mails = []; }
+      }
+      if (Z.aufgabe !== s) return;
+      s.stand = stand; s.verlauf = stand.verlauf; s.dateien = (dateien && dateien.value) || []; s.laedt = false; s.fehler = '';
+      // Was in SharePoint steht, gilt: Die Zeile in der Liste kann älter sein
+      if (stand.status === 'Offen') { a.faellig = stand.faellig; }
+      a.firma = stand.firma; ansprechSetzen(a, stand.ansprech);
+    } catch (e) {
+      if (Z.aufgabe !== s) return;
+      s.laedt = false; s.fehler = msg(e);
+    }
+    if (Z.aufgabe === s) seiteZeigen(true);
+  }
+  function aufgabeSchliessen(ausAdresse) {
+    if (!Z.aufgabe) return;
+    Z.aufgabe = null;
+    if (Z.meldung && !Z.meldung.rueck) Z.meldung = null;
+    if (!ausAdresse) adresseSetzen(Z.wahl);
+    neuRechnen();
+  }
+  // Zuweisung als Text, daraus die Kürzel für Marken und Filter
+  function ansprechSetzen(a, text) {
+    a.ansprech = text;
+    const w = String(text || '').split(/[^A-Za-zÄÖÜäöüß]+/).filter(Boolean);
+    a.kuerzel = Z.team.filter((b) => w.includes(b.kuerzel)).map((b) => b.kuerzel);
+  }
+
+  /* ---------- Bearbeiten ---------- */
+  // Die Seiten arbeiten mit Kopien. Geändert wird die Aufgabe im Zustand. Auf der Aufgabenseite gilt deren Aufgabe,
+  // auch wenn sie erledigt und damit nicht mehr in der Liste der offenen steht.
+  const original = (k) => (Z.aufgabe && k && Z.aufgabe.a.id === k.id ? Z.aufgabe.a : Z.aufgaben.find((x) => x.id === (k && k.id)) || null);
 
   /* Stand aus SharePoint in die Aufgabe übernehmen. Ist sie dort nicht mehr offen, fällt sie aus der Liste. */
   function standUebernehmen(a, s) {
     a.geaendert = s.geaendert;
-    if (s.status !== 'Offen') { Z.aufgaben = Z.aufgaben.filter((x) => x !== a); if (Z.offen === a.id) Z.offen = null; }
-    else a.faellig = s.faellig;
+    if (Z.aufgabe && Z.aufgabe.a === a) Z.aufgabe.stand = Object.assign({}, Z.aufgabe.stand, s);
+    if (s.status !== 'Offen') Z.aufgaben = Z.aufgaben.filter((x) => x !== a);
+    else { a.faellig = s.faellig; if (!Z.aufgaben.includes(a)) Z.aufgaben = Z.aufgaben.concat(a); }
+    if (s.firma !== undefined) a.firma = s.firma;
+    if (s.ansprech !== undefined) ansprechSetzen(a, s.ansprech);
   }
 
   /* Eine Änderung speichern. Bei einem Fehler bleibt die Anzeige, wie sie war. Hat jemand anderes genau dieses
@@ -178,41 +246,42 @@
     if (!bearb || !a || Z.arbeit) return;
     Z.arbeit = a.id; Z.meldung = null;
     seiteZeigen(true);
+    let neuLaden = false;
     try {
       const s = await tun();
-      a.geaendert = s.geaendert;
-      Z.meldung = { id: a.id, text, art: 'ok' };
-      danach(s);
+      standUebernehmen(a, s);
+      Z.meldung = { text, art: 'ok' };
+      neuLaden = danach(s) === true;
     } catch (e) {
-      Z.meldung = { id: a.id, text: msg(e), art: 'warn' };
-      if (e && e.konflikt && e.stand) { standUebernehmen(a, e.stand); Z.meldung.text += ' Die Anzeige ist jetzt aktuell.'; if (!Z.aufgaben.includes(a)) delete Z.meldung.id; }
+      Z.meldung = { text: msg(e), art: 'warn' };
+      if (e && e.konflikt && e.stand) { standUebernehmen(a, e.stand); Z.meldung.text += ' Die Anzeige ist jetzt aktuell.'; }
     }
     Z.arbeit = null;
     neuRechnen();
+    if (neuLaden && Z.aufgabe && Z.aufgabe.a === a) aufgabeLaden();
   }
 
   function erledigt(k) {
     const a = original(k);
     aendern(a, () => bearb.erledigen(a), () => {
-      Z.aufgaben = Z.aufgaben.filter((x) => x !== a);
-      Z.offen = null; Z.zurueck = a;
+      Z.zurueck = a;
       Z.meldung = { text: 'Erledigt: ' + a.titel, art: 'ok', rueck: true };
     }, '');
   }
 
   async function zurueckNehmen() {
-    const a = Z.zurueck;
+    const a = Z.aufgabe && Z.aufgabe.stand && Z.aufgabe.stand.status === 'Erledigt' ? Z.aufgabe.a : Z.zurueck;
     if (!bearb || !a || Z.arbeit) return;
     Z.arbeit = a.id; Z.meldung = { text: 'Wird zurückgenommen …', art: 'ok' };
     seiteZeigen(true);
     try {
       const s = await bearb.wiederOeffnen(a);
-      a.geaendert = s.geaendert; a.faellig = s.faellig;
-      Z.aufgaben = Z.aufgaben.concat(a); Z.zurueck = null;
+      standUebernehmen(a, s);
+      Z.zurueck = null;
       Z.meldung = { text: 'Wieder offen: ' + a.titel, art: 'ok' };
     } catch (e) {
       Z.meldung = { text: msg(e), art: 'warn' };
-      if (e && e.konflikt && e.stand && e.stand.status === 'Offen') { a.faellig = e.stand.faellig; Z.aufgaben = Z.aufgaben.concat(a); Z.zurueck = null; Z.meldung.text += ' Die Anzeige ist jetzt aktuell.'; }
+      if (e && e.konflikt && e.stand) { standUebernehmen(a, e.stand); if (e.stand.status === 'Offen') Z.zurueck = null; Z.meldung.text += ' Die Anzeige ist jetzt aktuell.'; }
     }
     Z.arbeit = null;
     neuRechnen();
@@ -222,10 +291,17 @@
     const a = original(k);
     aendern(a, () => bearb.faelligSetzen(a, iso), () => { a.faellig = iso; }, iso ? 'Fälligkeit gespeichert: ' + A.tagKurz(iso) : 'Die Aufgabe ist jetzt ohne Termin.');
   }
-
-  function notiz(k, text) {
+  function firmaSetzen(k, text) {
     const a = original(k);
-    aendern(a, () => bearb.notiz(a, text), () => { }, 'Notiz angefügt.');
+    aendern(a, () => bearb.firmaSetzen(a, text), () => { }, 'Firma gespeichert.');
+  }
+  function zuweisungSetzen(k, text) {
+    const a = original(k);
+    aendern(a, () => bearb.zuweisungSetzen(a, text, Z.team), () => { }, 'Zuweisung gespeichert.');
+  }
+  function notiz(k, text, datei) {
+    const a = original(k);
+    aendern(a, () => bearb.notiz(a, text, datei), () => { if (Z.aufgabe && Z.aufgabe.a === a) Z.aufgabe.notizMail = ''; return true; }, datei ? 'Eintrag an der Mail gespeichert.' : 'Eintrag gespeichert.');
   }
 
   function raender() { karte.rand({ r: breit() && Z.wahl ? seiteEl.offsetWidth : 0, o: breit() ? 56 : 104, u: breit() ? 0 : 56 }); }
@@ -233,7 +309,7 @@
   function oeffnen(key, ausAdresse) {
     if (istGebaeude(key) && !grund.gebaeude.has(key)) return false;
     const neu = Z.wahl !== key;
-    if (neu && !Z.arbeit) { Z.offen = null; Z.meldung = null; }
+    if (neu && !Z.arbeit) { Z.meldung = null; Z.aufgabe = null; }
     Z.wahl = key;
     seiteEl.classList.add('offen'); seiteEl.setAttribute('aria-hidden', 'false'); app.classList.add('seite-offen');
     karte.waehle(istGebaeude(key) ? key : null);
@@ -254,7 +330,7 @@
 
   function schliessen(ausAdresse) {
     if (!Z.wahl) return;
-    Z.wahl = null;
+    Z.wahl = null; Z.aufgabe = null;
     seiteEl.classList.remove('offen'); seiteEl.setAttribute('aria-hidden', 'true'); app.classList.remove('seite-offen');
     karte.waehle(null);
     $('#liste-auf').setAttribute('aria-pressed', 'false');
@@ -264,13 +340,26 @@
   }
 
   /* ---------- Adresse ---------- */
-  const ausAdresseLesen = () => { const m = /^#g=(.+)$/.exec(location.hash); if (!m) return null; const k = decodeURIComponent(m[1]); return k === 'ohne' ? OHNE : k === 'liste' ? LISTE : k; };
+  // Adresse: #g=<Gebäude | ohne | liste>, mit offener Aufgabe dahinter &a=<Nummer der Mappe>. Zurück im Browser schließt die Aufgabe.
+  const ausAdresseLesen = () => {
+    const m = /^#g=([^&]+)(?:&a=(\d+))?$/.exec(location.hash);
+    if (!m) return null;
+    const k = decodeURIComponent(m[1]);
+    return { key: k === 'ohne' ? OHNE : k === 'liste' ? LISTE : k, aufgabe: m[2] ? Number(m[2]) : null };
+  };
   function adresseSetzen(key) {
-    const ziel = key ? '#g=' + encodeURIComponent(key === OHNE ? 'ohne' : key === LISTE ? 'liste' : key) : '';
+    const ziel = key ? '#g=' + encodeURIComponent(key === OHNE ? 'ohne' : key === LISTE ? 'liste' : key) + (Z.aufgabe ? '&a=' + Z.aufgabe.a.id : '') : '';
     if (location.hash === ziel || (!ziel && !location.hash)) return;
     if (ziel) location.hash = ziel; else history.replaceState(null, '', location.pathname + location.search);
   }
-  function ausAdresse() { const k = ausAdresseLesen(); if (k) { if (!oeffnen(k, true)) schliessen(true); } else schliessen(true); }
+  function ausAdresse() {
+    const k = ausAdresseLesen();
+    if (!k) { schliessen(true); return; }
+    if (Z.wahl !== k.key) { if (!oeffnen(k.key, true)) { schliessen(true); return; } }
+    const offen = Z.aufgabe ? Z.aufgabe.a.id : null;
+    if (k.aufgabe && k.aufgabe !== offen) { if (!aufgabeOeffnen(k.aufgabe, true)) aufgabeSchliessen(true); }
+    else if (!k.aufgabe && offen) aufgabeSchliessen(true);
+  }
   window.addEventListener('hashchange', ausAdresse);
 
   /* ---------- Suche ---------- */

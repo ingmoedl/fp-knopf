@@ -181,22 +181,78 @@ button.gs-gruppenkopf:hover .name { color: var(--text); }
 .listenknopf[aria-pressed="true"] { color: var(--text); box-shadow: inset 0 0 0 1px var(--stahl); }
 .listenknopf .zahl { font: 500 11px/1 var(--font-daten); color: var(--text-3); }
 .listenknopf[aria-pressed="true"] .zahl { color: var(--bernstein); }
-/* Aufgabe mit Bearbeitung: die Zeile, darunter die Taste und bei Bedarf das Feld */
+/* Aufgabe in der Liste: Die Zeile ist eine Taste und öffnet die Aufgabenseite */
 .gs-aufgabe { display: grid; border-top: 1px solid var(--linie); }
 .gs-aufgabe:first-child { border-top: 0; }
 .gs-aufgabe > .gs-zeile { border-top: 0; }
-.gs-stift { justify-self: end; margin: -6px 10px 7px; padding: 3px 6px; border: 0; border-radius: 6px; background: transparent; color: var(--text-3); font: 500 11.5px/1.2 var(--font-text); cursor: pointer; }
-.gs-stift:hover, .gs-stift[aria-expanded="true"] { color: var(--text); background: var(--flaeche); }
-.gs-bearb { display: grid; gap: 8px; padding: 10px 12px 12px; background: var(--flaeche); border-top: 1px solid var(--linie); }
-.gs-bearb .reihe { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; }
-.gs-bearb .lab { margin-left: 6px; font: 500 12px/1 var(--font-text); color: var(--text-3); }
-.gs-bearb button, .gs-meldung button { border: 1px solid var(--linie); background: var(--flaeche-2); color: var(--text); font: 600 12px/1 var(--font-text); padding: 8px 11px; border-radius: 999px; cursor: pointer; }
-.gs-bearb button:hover:not(:disabled), .gs-meldung button:hover { border-color: var(--stahl); }
-.gs-bearb button:disabled { color: var(--text-3); cursor: default; }
-.gs-bearb button.erledigt { border-color: color-mix(in srgb, var(--ampel-gruen) 55%, var(--linie)); }
-.gs-bearb input { color: var(--text); background: var(--flaeche-2); border: 1px solid var(--linie); border-radius: 8px; padding: 7px 9px; font: 500 12.5px/1 var(--font-text); outline: none; color-scheme: dark; }
-.gs-bearb input:focus { border-color: var(--stahl); }
-.gs-bearb input.notiz { flex: 1 1 160px; min-width: 0; }
+button.gs-zeile { width: 100%; margin: 0; border-left: 0; border-right: 0; border-bottom: 0; border-radius: 0; background: transparent; font: inherit; text-align: left; cursor: pointer; }
+button.gs-zeile:hover { background: color-mix(in srgb, var(--stahl) 7%, var(--flaeche-2)); }
+button.gs-zeile:focus-visible, .as-zurueck:focus-visible, .as-taste:focus-visible, .as-feld:focus-visible, .as-kz .kz:focus-visible, .as-schnell button:focus-visible, .as-mailtasten button:focus-visible, .as-mailtasten a:focus-visible { outline: 2px solid var(--stahl); outline-offset: -2px; }
+.gs-meldung button { border: 1px solid var(--linie); background: var(--flaeche-2); color: var(--text); font: 600 12px/1 var(--font-text); padding: 8px 11px; border-radius: 999px; cursor: pointer; }
+.gs-meldung button:hover { border-color: var(--stahl); }
+
+/* Aufgabenseite */
+.as-kopf { grid-template-columns: 1fr auto; }
+.as-zurueck { grid-column: 1; justify-self: start; height: 34px; padding: 0 13px; border: 1px solid var(--linie); border-radius: 999px; background: var(--flaeche-2); color: var(--text-2); font: 600 12.5px/1 var(--font-text); cursor: pointer; }
+.as-zurueck:hover { color: var(--text); border-color: var(--text-3); }
+.as-titel { grid-column: 1 / -1; margin: 6px 0 0; font: 600 19px/1.25 var(--font-text); text-wrap: balance; overflow-wrap: anywhere; }
+.as-info { grid-column: 1 / -1; margin: 0; font: 400 12.5px/1.4 var(--font-text); color: var(--text-2); }
+.as-info b { font-weight: 600; color: var(--text); }
+.as-info b.rot { color: var(--rot); }
+.as-info b.gut { color: var(--ampel-gruen); }
+.as-innen { gap: 16px; }
+.as-reihe { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; }
+.as-taste { height: 36px; padding: 0 14px; border: 1px solid var(--linie); border-radius: 999px; background: var(--flaeche-2); color: var(--text); font: 600 13px/1 var(--font-text); cursor: pointer; }
+.as-taste:hover:not(:disabled) { border-color: var(--stahl); }
+.as-taste:disabled { color: var(--text-3); cursor: default; }
+.as-taste.erledigt { border-color: color-mix(in srgb, var(--ampel-gruen) 55%, var(--linie)); }
+.as-link { color: var(--stahl); font: 500 13px/1.3 var(--font-text); text-decoration: none; }
+.as-link:hover { color: var(--text); text-decoration: underline; }
+.as-zwei { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.as-zwei label, .as-block label { display: grid; gap: 5px; min-width: 0; }
+.as-zwei label > span, .as-block label > span { font: 600 11px/1.2 var(--font-text); letter-spacing: .1em; text-transform: uppercase; color: var(--text-2); }
+.as-feld { min-width: 0; width: 100%; box-sizing: border-box; height: 36px; padding: 0 10px; color: var(--text); background: var(--flaeche-2); border: 1px solid var(--linie); border-radius: 8px; font: 500 13px/1 var(--font-text); outline: none; color-scheme: dark; }
+.as-feld:focus { border-color: var(--stahl); }
+.as-feld:disabled { color: var(--text-3); }
+.as-kz { display: flex; flex-wrap: wrap; gap: 6px; margin-top: -8px; }
+.as-kz .kz { height: 26px; padding: 0 10px; border: 2px solid transparent; border-radius: 6px; font: 700 11.5px/1 var(--font-text); letter-spacing: .03em; cursor: pointer; opacity: .45; }
+.as-kz .kz[aria-pressed="true"] { opacity: 1; border-color: var(--text); }
+.as-kz .kz:disabled { cursor: default; }
+.as-block { display: grid; gap: 7px; }
+.as-schnell { display: flex; flex-wrap: wrap; gap: 6px; }
+.as-schnell button { height: 28px; padding: 0 11px; border: 1px solid var(--linie); border-radius: 999px; background: transparent; color: var(--text-2); font: 500 12px/1 var(--font-text); cursor: pointer; }
+.as-schnell button:hover:not(:disabled) { color: var(--text); border-color: var(--stahl); }
+.as-schnell button:disabled { color: var(--text-3); cursor: default; }
+.as-neu { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; }
+.as-neu:empty { display: none; }
+.as-neu .notiz { grid-column: 1 / -1; }
+.as-neu .zu-mail { min-width: 0; }
+.as-verlauf { display: grid; gap: 8px; }
+.as-posten { display: grid; gap: 6px; padding: 10px 12px; border: 1px solid var(--linie); border-radius: 8px; background: var(--flaeche-2); }
+.as-posten.nur-mail { padding: 0; border: 0; background: transparent; }
+.as-notizkopf { display: flex; align-items: baseline; gap: 8px; font: 500 11.5px/1.2 var(--font-daten); color: var(--text-3); }
+.as-notizkopf .wer { padding: 2px 6px; border-radius: 5px; background: var(--flaeche); color: var(--text-2); font: 700 10.5px/1 var(--font-text); letter-spacing: .04em; }
+.as-notiz { margin: 0; font: 400 13.5px/1.45 var(--font-text); color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
+.as-mail { display: grid; gap: 6px; padding: 9px 11px; border: 1px solid var(--linie); border-left: 3px solid var(--stahl); border-radius: 8px; background: var(--flaeche); }
+.as-posten.nur-mail .as-mail { background: var(--flaeche-2); }
+.as-mailkopf { display: grid; grid-template-columns: auto auto minmax(0, 1fr); gap: 8px; align-items: baseline; }
+.as-mailkopf .umschlag { color: var(--stahl); font-size: 13px; }
+.as-mailkopf .zeit { font: 500 11.5px/1.3 var(--font-daten); color: var(--text-3); white-space: nowrap; }
+.as-mailkopf .betreff { font: 500 13px/1.35 var(--font-text); color: var(--text); overflow-wrap: anywhere; }
+.as-kurz { margin: 0; font: 400 13px/1.45 var(--font-text); color: var(--text-2); overflow-wrap: anywhere; }
+.as-mailtasten { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+.as-mailtasten button { height: 28px; padding: 0 11px; border: 1px solid var(--linie); border-radius: 999px; background: var(--flaeche-2); color: var(--text); font: 600 12px/1 var(--font-text); cursor: pointer; }
+.as-mailtasten button:hover { border-color: var(--stahl); }
+.as-mailtasten button.dazu { background: transparent; color: var(--text-2); font-weight: 500; }
+.as-mailtasten a { color: var(--text-3); font: 500 12px/1.3 var(--font-text); text-decoration: none; }
+.as-mailtasten a:hover { color: var(--text); }
+.as-fehlt { font: 400 12px/1.4 var(--font-text); color: var(--bernstein); overflow-wrap: anywhere; }
+.as-datei { display: flex; justify-content: space-between; gap: 12px; padding: 9px 12px; border-top: 1px solid var(--linie); color: inherit; text-decoration: none; font: 500 13px/1.35 var(--font-text); }
+.as-datei:first-child { border-top: 0; }
+a.as-datei:hover { background: color-mix(in srgb, var(--stahl) 7%, var(--flaeche-2)); }
+.as-datei .name { min-width: 0; overflow-wrap: anywhere; }
+.as-datei .gr { flex: none; font: 500 11.5px/1.35 var(--font-daten); color: var(--text-3); }
+@media (max-width: 420px) { .as-zwei { grid-template-columns: 1fr; } }
 .gs-meldung { display: flex; align-items: center; justify-content: space-between; gap: 10px; font: 500 12.5px/1.35 var(--font-text); color: var(--ampel-gruen); overflow-wrap: anywhere; }
 .gs-meldung.warn { color: var(--bernstein); }
 .gs-meldung.oben { padding: 8px 10px; border: 1px solid var(--linie); border-radius: 8px; background: var(--flaeche-2); }
